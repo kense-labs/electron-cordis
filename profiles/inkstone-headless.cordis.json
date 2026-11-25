@@ -1,0 +1,95 @@
+{
+  "schema": "electron-cordis.profile.v1",
+  "name": "inkstone-headless",
+  "description": "Zero-Chromium headless Inkstone & heterogeneous DSH Harness runtime (CLI / CI / daemon).",
+  "krun": {
+    "default_backend": "auto",
+    "fail_closed": true
+  },
+  "plugins": [
+    {
+      "id": "@dsh/krun-runtime",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "config": {
+        "private_volume_single_writer": true,
+        "guest_stable_paths": ["/core-state", "/guest-shares", "/run/krun"]
+      }
+    },
+    {
+      "id": "@dsh/bridge-inkstone-tools",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "cap.os-shell"],
+      "config": {
+        "guest_socket": "/run/krun/host-tools.sock",
+        "vsock_port": 4051
+      }
+    },
+    {
+      "id": "@dsh/bridge-mcp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-mcp.sock"
+      }
+    },
+    {
+      "id": "@dsh/bridge-acp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-rpc.sock"
+      }
+    },
+    {
+      "id": "@dsh/llm-gateway",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime"],
+      "config": {
+        "guest_socket": "/run/krun/llm-gateway.sock"
+      }
+    },
+    {
+      "id": "@dsh/cap-safe-storage",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-os-shell",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host",
+      "config": {
+        "sandbox_authority": "krun"
+      }
+    },
+    {
+      "id": "@dsh/runtime-node-host",
+      "runtime": "rust",
+      "isolation": "microvm",
+      "realm": "untrusted-plugin",
+      "inject": ["krun.runtime"]
+    },
+    {
+      "id": "@dsh/inkstone-harness",
+      "runtime": "node-dsh",
+      "isolation": "microvm",
+      "realm": "core",
+      "inject": ["krun.runtime", "bridge.inkstone_tools", "gateway.llm"],
+      "config": {
+        "entry": "dist/host-turn.js",
+        "native_contract": "contracts/native"
+      }
+    }
+  ]
+}

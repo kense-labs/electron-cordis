@@ -1,0 +1,12 @@
+{
+  "upstream_repo": "https://github.com/dshbox/cordis-rs.git",
+  "ref": "main",
+  "commit": "9722d6844abe46567a22f18e4a2d7bae95825319",
+  "license": "MIT",
+  "internalized_crates": [
+    "crates/cordis-core",
+    "crates/cordis-loader",
+    "crates/cordis-timer"
+  ],
+  "mode": "internalized_source_owned_in_repo"
+}

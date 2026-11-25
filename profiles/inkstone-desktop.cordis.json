@@ -1,0 +1,214 @@
+{
+  "schema": "electron-cordis.profile.v1",
+  "name": "inkstone-desktop",
+  "description": "Drop-in pluginized replacement for Inkstone Desktop (Electron 43 parity + KRun + DSH plugins).",
+  "krun": {
+    "default_backend": "auto",
+    "fail_closed": true
+  },
+  "plugins": [
+    {
+      "id": "@dsh/krun-runtime",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "config": {
+        "private_volume_single_writer": true,
+        "guest_stable_paths": ["/core-state", "/guest-shares", "/run/krun"]
+      }
+    },
+    {
+      "id": "@dsh/bridge-inkstone-tools",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "cap.os-shell"],
+      "config": {
+        "guest_socket": "/run/krun/host-tools.sock",
+        "vsock_port": 4051
+      }
+    },
+    {
+      "id": "@dsh/bridge-mcp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-mcp.sock"
+      }
+    },
+    {
+      "id": "@dsh/bridge-acp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-rpc.sock"
+      }
+    },
+    {
+      "id": "@dsh/llm-gateway",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime"],
+      "config": {
+        "guest_socket": "/run/krun/llm-gateway.sock"
+      }
+    },
+    {
+      "id": "@dsh/cap-safe-storage",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-clipboard",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-dialog",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-tray-menu",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-notification",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-os-integration",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-os-shell",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host",
+      "config": {
+        "sandbox_authority": "krun"
+      }
+    },
+    {
+      "id": "@dsh/cap-updater",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "delivery": "bundled",
+      "realm": "host",
+      "config": {
+        "channels": ["full-app", "renderer-only"]
+      }
+    },
+    {
+      "id": "@dsh/plugin-installer",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "delivery": "bundled",
+      "realm": "host",
+      "config": {
+        "require_ed25519": true,
+        "require_sha256": true
+      }
+    },
+    {
+      "id": "@dsh/plugin-science-pack",
+      "runtime": "acp-proc",
+      "isolation": "os-sandbox",
+      "delivery": "on-demand",
+      "realm": "untrusted-plugin",
+      "inject": ["krun.runtime", "host.plugin_installer"]
+    },
+    {
+      "id": "@dsh/plugin-feishu",
+      "runtime": "node-dsh",
+      "isolation": "os-sandbox",
+      "delivery": "on-demand",
+      "realm": "untrusted-plugin",
+      "inject": ["plane_b.tool_catalog"]
+    },
+    {
+      "id": "@dsh/plugin-ssh-remote",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "delivery": "on-demand",
+      "realm": "host",
+      "inject": ["host.askpass_vault"]
+    },
+    {
+      "id": "@dsh/cap-desktop-capture",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "delivery": "on-demand",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/electron-web-surface",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "ui",
+      "config": {
+        "preload_allowlist": [
+          "desktopTransport",
+          "desktopFiles",
+          "observability",
+          "__inkstoneDiagnosticsLog"
+        ],
+        "tipc_namespace": "inkstone-desktop",
+        "preview_scheme": "inkstone-preview"
+      }
+    },
+    {
+      "id": "@dsh/electron-pdf-viewer",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "ui",
+      "inject": ["ui.web_surface"]
+    },
+    {
+      "id": "@dsh/electron-net",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "ui",
+      "inject": ["ui.web_surface"]
+    },
+    {
+      "id": "@dsh/electron-compat",
+      "runtime": "node-dsh",
+      "isolation": "trusted-host",
+      "realm": "ui",
+      "inject": ["ui.web_surface"]
+    },
+    {
+      "id": "@dsh/runtime-node-host",
+      "runtime": "rust",
+      "isolation": "microvm",
+      "realm": "untrusted-plugin",
+      "inject": ["krun.runtime"]
+    },
+    {
+      "id": "@dsh/inkstone-harness",
+      "runtime": "node-dsh",
+      "isolation": "microvm",
+      "realm": "core",
+      "inject": ["ui.ready", "auth.session", "krun.runtime", "bridge.inkstone_tools", "gateway.llm"],
+      "config": {
+        "entry": "dist/host-turn.js",
+        "native_contract": "contracts/native"
+      }
+    }
+  ]
+}

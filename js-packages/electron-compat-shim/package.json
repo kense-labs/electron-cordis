@@ -1,0 +1,14 @@
+{
+  "name": "@dsh/electron-compat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Drop-in Electron API shim forwarding Class-A host capabilities to electron-cordis-daemon",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

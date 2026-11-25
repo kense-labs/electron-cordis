@@ -1,0 +1,20 @@
+[package]
+name = "electron-cordis-cap-safe-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Class-A Rust DSH capability plugin: @dsh/cap-safe-storage (HostRealm exclusive)"
+
+[dependencies]
+cordis-core.workspace = true
+electron-cordis-kernel = { path = "../cordis-kernel" }
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

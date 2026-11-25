@@ -1,0 +1,24 @@
+[package]
+name = "electron-cordis-supervisor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "M5 Stage B top-level Rust Supervisor: decouples Core/KRun daemon from optional Chromium UI so UI crash/restart never interrupts active VM turns or drops single-writer private volume seals"
+
+[lib]
+name = "electron_cordis_supervisor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "electron-cordis-supervisor"
+path = "src/main.rs"
+
+[dependencies]
+electron-cordis-krun-plugins = { path = "../cordis-krun-plugins" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "process", "time"] }
+
+[lints]
+workspace = true

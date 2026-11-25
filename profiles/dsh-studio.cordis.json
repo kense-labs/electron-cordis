@@ -1,0 +1,98 @@
+{
+  "schema": "electron-cordis.profile.v1",
+  "name": "dsh-studio",
+  "description": "Electron-Cordis desktop profile running DeepSeek Harness (dsh) TypeScript core on KRun.",
+  "krun": {
+    "default_backend": "auto",
+    "fail_closed": true
+  },
+  "plugins": [
+    {
+      "id": "@dsh/krun-runtime",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "config": {
+        "private_volume_single_writer": true,
+        "guest_stable_paths": ["/core-state", "/guest-shares", "/run/krun"]
+      }
+    },
+    {
+      "id": "@dsh/bridge-mcp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-mcp.sock"
+      }
+    },
+    {
+      "id": "@dsh/bridge-acp",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime", "plane_b.tool_catalog"],
+      "config": {
+        "guest_socket": "/run/krun/dsh-rpc.sock"
+      }
+    },
+    {
+      "id": "@dsh/llm-gateway",
+      "runtime": "rust",
+      "isolation": "in-process",
+      "realm": "core",
+      "inject": ["krun.runtime"],
+      "config": {
+        "guest_socket": "/run/krun/llm-gateway.sock"
+      }
+    },
+    {
+      "id": "@dsh/cap-safe-storage",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-clipboard",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-dialog",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host"
+    },
+    {
+      "id": "@dsh/cap-os-shell",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "host",
+      "config": {
+        "sandbox_authority": "krun"
+      }
+    },
+    {
+      "id": "@dsh/electron-web-surface",
+      "runtime": "rust",
+      "isolation": "trusted-host",
+      "realm": "ui"
+    },
+    {
+      "id": "@dsh/runtime-node-host",
+      "runtime": "rust",
+      "isolation": "microvm",
+      "realm": "untrusted-plugin",
+      "inject": ["krun.runtime"]
+    },
+    {
+      "id": "@dsh/core-dsh-ts",
+      "runtime": "rust",
+      "isolation": "microvm",
+      "realm": "core",
+      "inject": ["ui.ready", "krun.runtime", "bridge.mcp", "bridge.acp"]
+    }
+  ]
+}

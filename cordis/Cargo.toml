@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = [
+    # Internalized from https://github.com/dshbox/cordis-rs (MIT) — owned in-repo, no crates.io dependency.
+    "crates/cordis-core",
+    "crates/cordis-loader",
+    "crates/cordis-timer",
+    # Electron-Cordis microkernel, KRun plugins, Class-A capabilities, heterogeneous wire federation, and Stage A daemon.
+    "crates/cordis-kernel",
+    "crates/cordis-krun-plugins",
+    "crates/cordis-cap-clipboard",
+    "crates/cordis-cap-safe-storage",
+    "crates/cordis-cap-dialog",
+    "crates/cordis-cap-os-shell",
+    "crates/cordis-cap-desktop-ui",
+    "crates/cordis-cap-platform",
+    "crates/cordis-wire",
+    "crates/cordis-daemon",
+    "crates/cordis-supervisor",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+repository = "https://github.com/dshbox/cordis-rs"
+
+[workspace.dependencies]
+cordis-core = { path = "crates/cordis-core" }
+cordis-loader = { path = "crates/cordis-loader" }
+cordis-timer = { path = "crates/cordis-timer" }
+krun-runtime = { package = "runtime", path = "../../krun/crates/runtime" }
+krun-tools = { package = "tools", path = "../../krun/crates/tools" }
+krun-backend-kiri-vz = { package = "backend-kiri-vz", path = "../../krun/crates/backend-kiri-vz" }
+krun-backend-kiri-win = { package = "backend-kiri-win", path = "../../krun/crates/backend-kiri-win" }
+krun-backend-os-sandbox = { package = "backend-os-sandbox", path = "../../krun/crates/backend-os-sandbox" }
+krun-backend-vm = { package = "backend-vm", path = "../../krun/crates/backend-vm" }
+krun-backend-wasm = { package = "backend-wasm", path = "../../krun/crates/backend-wasm" }
+krun-backend-fake = { package = "backend-fake", path = "../../krun/crates/backend-fake" }
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+thiserror = { version = "2", default-features = false }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "sync", "macros"] }
+parking_lot = "0.12"
+futures = "0.3"
+sha2 = { version = "0.10", default-features = false }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+getrandom = { version = "0.3", features = ["std"] }
+trybuild = "1"
+loom = "0.7"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unreachable_pub = "warn"

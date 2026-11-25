@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Inkstone / Electron-Cordis Contributors.
+# Use of this source code is governed by the MIT license that can be
+# found in the LICENSE file.
+#
+# Declarative GN buildflags for Electron-Cordis on-demand DSH plugin builds.
+# Default (electron_cordis_mode = false) preserves upstream Electron behavior.
+
+declare_args() {
+  # Enables Electron-Cordis modular DSH plugin pruning and registry generation.
+  electron_cordis_mode = false
+
+  # Profile identifier baked into build metadata (e.g. "inkstone-desktop").
+  electron_cordis_profile = ""
+
+  # Explicit allowlist of Electron C++ capability plugins to compile/link when
+  # electron_cordis_mode = true. Any unlisted Class-A/B/C module is excluded.
+  electron_cordis_plugins = []
+}
+
+# Canonical plugin IDs mapped to compile-time toggles.
+# Class-B minimal web surface (required whenever Chromium shell is built):
+cordis_has_web_surface =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-web-surface" ]) != []
+
+# Class-B optional Chromium subsystems:
+cordis_has_pdf_viewer =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-pdf-viewer" ]) != []
+
+cordis_has_electron_net =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-net" ]) != []
+
+cordis_has_printing =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-printing" ]) != []
+
+cordis_has_extensions =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-extensions" ]) != []
+
+cordis_has_spellcheck =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-spellcheck" ]) != []
+
+# Class-A legacy Electron C++ bindings (compiled ONLY if not yet offloaded to
+# Rust @dsh/cap-* plugins via @dsh/electron-compat):
+cordis_keep_legacy_safe_storage =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-safe-storage" ]) != []
+
+cordis_keep_legacy_clipboard =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-clipboard" ]) != []
+
+cordis_keep_legacy_dialog =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-dialog" ]) != []
+
+cordis_keep_legacy_tray_menu =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-tray-menu" ]) != []
+
+cordis_keep_legacy_notification =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-notification" ]) != []
+
+cordis_keep_legacy_os_integration =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-os-integration" ]) != []
+
+cordis_keep_legacy_shell =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-shell" ]) != []
+
+cordis_keep_legacy_updater =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-updater" ]) != []

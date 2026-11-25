@@ -1,0 +1,14 @@
+{
+  "name": "@dsh/cordis-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JS/TS DeepSeek Harness (Cordis) compatibility bridge speaking Cordis-over-Wire to Rust Shadow Fibers",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

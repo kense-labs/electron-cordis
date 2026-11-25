@@ -1,0 +1,34 @@
+[package]
+name = "electron-cordis-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Stage A local microkernel daemon serving Narrow Dock JSON-RPC 2.0, Class-A Rust caps, MCP projection, and ShadowFiber bridge"
+
+[lib]
+name = "electron_cordis_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "electron-cordis-daemon"
+path = "src/main.rs"
+
+[dependencies]
+cordis-core.workspace = true
+electron-cordis-cap-clipboard = { path = "../cordis-cap-clipboard" }
+electron-cordis-cap-desktop-ui = { path = "../cordis-cap-desktop-ui" }
+electron-cordis-cap-dialog = { path = "../cordis-cap-dialog" }
+electron-cordis-cap-os-shell = { path = "../cordis-cap-os-shell" }
+electron-cordis-cap-platform = { path = "../cordis-cap-platform" }
+electron-cordis-cap-safe-storage = { path = "../cordis-cap-safe-storage" }
+electron-cordis-kernel = { path = "../cordis-kernel" }
+electron-cordis-krun-plugins = { path = "../cordis-krun-plugins" }
+electron-cordis-wire = { path = "../cordis-wire" }
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-std", "time"] }
+
+[lints]
+workspace = true

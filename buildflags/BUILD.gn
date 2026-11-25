@@ -4,6 +4,7 @@
 
 import("//build/buildflag_header.gni")
 import("//electron/buildflags/buildflags.gni")
+import("//electron/buildflags/cordis_plugins.gni")
 
 buildflag_header("buildflags") {
   header = "buildflags.h"
@@ -13,6 +14,21 @@ buildflag_header("buildflags") {
     "ENABLE_ELECTRON_EXTENSIONS=$enable_electron_extensions",
     "ENABLE_BUILTIN_SPELLCHECKER=$enable_builtin_spellchecker",
     "ENABLE_PROMPT_API=$enable_prompt_api",
+    "ELECTRON_CORDIS_MODE=$electron_cordis_mode",
+    "CORDIS_HAS_WEB_SURFACE=$cordis_has_web_surface",
+    "CORDIS_HAS_PDF_VIEWER=$cordis_has_pdf_viewer",
+    "CORDIS_HAS_ELECTRON_NET=$cordis_has_electron_net",
+    "CORDIS_HAS_PRINTING=$cordis_has_printing",
+    "CORDIS_HAS_EXTENSIONS=$cordis_has_extensions",
+    "CORDIS_HAS_SPELLCHECK=$cordis_has_spellcheck",
+    "CORDIS_KEEP_LEGACY_SAFE_STORAGE=$cordis_keep_legacy_safe_storage",
+    "CORDIS_KEEP_LEGACY_CLIPBOARD=$cordis_keep_legacy_clipboard",
+    "CORDIS_KEEP_LEGACY_DIALOG=$cordis_keep_legacy_dialog",
+    "CORDIS_KEEP_LEGACY_TRAY_MENU=$cordis_keep_legacy_tray_menu",
+    "CORDIS_KEEP_LEGACY_NOTIFICATION=$cordis_keep_legacy_notification",
+    "CORDIS_KEEP_LEGACY_OS_INTEGRATION=$cordis_keep_legacy_os_integration",
+    "CORDIS_KEEP_LEGACY_SHELL=$cordis_keep_legacy_shell",
+    "CORDIS_KEEP_LEGACY_UPDATER=$cordis_keep_legacy_updater",
   ]
 
   if (electron_vendor_version != "") {

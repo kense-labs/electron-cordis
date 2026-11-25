@@ -1,0 +1,408 @@
+# Changelog
+
+## [Unreleased]
+
+## [0.6.1](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.6.0...cordis-core-v0.6.1) - 2026-09-30
+
+### Other
+
+- *(core)* tidy idle-origin runtime test header, timeouts and wait loop
+- *(core)* assert residency before dropping the abandoned creation
+
+## [0.6.0](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.5.0...cordis-core-v0.6.0) - 2026-09-30
+
+### Changed
+
+- *(core)* **Breaking pre-freeze batch** (spec #225: #233, #234, #235, #236,
+  #237, #240, #241). Public vocabularies expected to grow are now
+  `#[non_exhaustive]`; lifecycle admission order is defined as slot acquisition,
+  and the earlier promise that a committed `spawn` completes independently of
+  caller polling is narrowed to polling-driven creation up to `FiberHandle`
+  delivery ([ADR 0029](https://github.com/dshbox/cordis-rs/blob/main/docs/adr/0029-lifecycle-commits-complete-and-critical-sections-are-closed.md)). Committed `FiberHandle::dispose()` and
+  `Context::remove_plugins` hand their owner to framework completion at its first
+  Pending, so the committed work progresses while the caller's future is alive
+  but unpolled. The new compatible-evolution policy and the auto-trait and
+  operation-future `Send` promises are declared
+  ([ADR 0042](https://github.com/dshbox/cordis-rs/blob/main/docs/adr/0042-public-evolution-declares-openness-and-auto-traits.md)). See
+  [MIGRATION.md](https://github.com/dshbox/cordis-rs/blob/main/MIGRATION.md).
+- *(core)* Coordinate the semantic crates on the `0.6` line. Update direct core,
+  timer and loader dependency requirements together.
+
+### Added
+
+- *(core)* [**breaking**] open the public vocabularies that are expected to grow
+
+### Fixed
+
+- *(core)* `FiberHandle::wait_state` no longer reports `Elapsed` at random for a
+  requested state that was published before the deadline when the waiter resumes
+  after the deadline; a publication before the deadline is always observed
+  ([#234](https://github.com/dshbox/cordis-rs/pull/234)).
+- *(core)* Downstream code can no longer call the hidden
+  `CleanupResult::into_outcome` to forge an `EffectFailure`; the method now takes
+  a crate-private token ([#236](https://github.com/dshbox/cordis-rs/pull/236)).
+- *(core)* address review of the first-Pending owner hand-off
+- *(core)* hand committed owners off at their first Pending
+
+### Other
+
+- promise Send for operation futures and apply B2 review fixes
+- declare compatible evolution, openness and auto-trait promises
+- define lifecycle admission, fix ObservationRouting traits and FiberHandle wording
+
+## [0.5.0](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.4.1...cordis-core-v0.5.0) - 2026-09-29
+
+### Changed
+
+- *(core)* **Breaking contract narrowing:** user destructor panics follow one
+  best-effort rule ([ADR 0041](https://github.com/dshbox/cordis-rs/blob/main/docs/adr/0041-user-destructor-panics-are-best-effort.md)).
+  Values supplied to Cordis must not panic when dropped; containment and
+  reporting of such a panic is best-effort only, and the earlier Event and
+  era-swap destructor promises are withdrawn. API spellings, runtime behavior
+  and existing containment are unchanged.
+- *(core)* Coordinate the semantic crates on the `0.5` line. Update direct core,
+  timer and loader dependency requirements together.
+
+## [0.4.1](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.4.0...cordis-core-v0.4.1) - 2026-09-29
+
+### Other
+
+- keep apply placement out of the frozen surface
+- align apply execution and driver boundaries with ADR 0029
+- refresh freeze evidence after correctness follow-ups
+
+## [0.4.0](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.27...cordis-core-v0.4.0) - 2026-09-29
+
+### Changed
+
+- *(core)* Coordinate the semantic crates on the `0.4` line for Loader's
+  breaking source-schema validation change. Update direct core, timer and loader
+  dependency requirements together; the published sibling requirements use the
+  normal Cargo-compatible `0.4` line.
+
+### Fixed
+
+- *(core)* Retry stale transient `ready()` observations instead of panicking.
+- *(core)* Complete committed lifecycle work on idle current-thread runtimes.
+- *(core)* Isolate settle attribution of caller-driven owners.
+- *(core)* `FiberHandle::wait_state` no longer holds one OS thread per pending
+  wait: every armed deadline is served by one lazily started, process-wide
+  `cordis-deadline` thread, and cancelled waits remove their entry immediately.
+  A refused thread spawn no longer panics inside `wait_state`. Contain deadline
+  wakes individually and replace a lost scheduler worker.
+
+### Added
+
+- *(core)* `WaitStateError::DeadlineUnavailable`, returned when a wait needs a
+  deadline but the process refuses to start the shared deadline thread. The
+  enum is `#[non_exhaustive]`, so existing matches keep compiling.
+
+## [0.3.27](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.26...cordis-core-v0.3.27) - 2026-09-27
+
+### Fixed
+
+- *(core)* close lock before rendering waterfall panic
+- *(core)* contain each uncalled waterfall snapshot drop
+
+## [0.3.26](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.25...cordis-core-v0.3.26) - 2026-09-27
+
+### Fixed
+
+- *(core)* contain skipped Event snapshots across dispatch modes
+- *(core)* contain unclaimed event snapshot drops on early exit
+
+## [0.3.25](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.24...cordis-core-v0.3.25) - 2026-09-27
+
+### Fixed
+
+- *(core)* contain uncalled waterfall tail destruction
+
+### Other
+
+- *(core)* clarify preflight tail ownership and non-invocation
+
+## [0.3.24](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.23...cordis-core-v0.3.24) - 2026-09-27
+
+### Other
+
+- *(core)* clarify Event callback destructor containment
+- Contain once listener callback destruction during dispatch
+
+## [0.3.23](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.22...cordis-core-v0.3.23) - 2026-09-26
+
+### Fixed
+
+- *(loader)* route rollback destructor diagnostics to logger
+- *(loader)* contain rollback member input destruction
+
+## [0.3.22](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.21...cordis-core-v0.3.22) - 2026-09-26
+
+### Fixed
+
+- *(core)* route bulk removal destructor reports to logger
+
+## [0.3.21](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.20...cordis-core-v0.3.21) - 2026-09-26
+
+### Fixed
+
+- *(core)* contain bulk member destruction
+
+## [0.3.20](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.19...cordis-core-v0.3.20) - 2026-09-26
+
+### Fixed
+
+- *(core)* contain dependent destruction during era convergence
+
+### Other
+
+- *(core)* prove the parked cleanup holds the successor's only Arc
+- *(core)* pin the undelivered cleanup's survivor barrier causally
+- *(core)* pin undelivered cleanup continuation past a dependent panic
+- *(core)* pin era containment through public interleavings
+
+## [0.3.19](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.18...cordis-core-v0.3.19) - 2026-09-26
+
+### Fixed
+
+- *(core)* route dependent Drop diagnostics to exporters
+- *(core)* contain dependent destruction during Service drift kick
+
+### Other
+
+- *(core)* place drift probe comment beside setup
+
+## [0.3.18](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.17...cordis-core-v0.3.18) - 2026-09-25
+
+### Fixed
+
+- *(core)* contain exporter destruction during convergence logging
+
+## [0.3.17](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.16...cordis-core-v0.3.17) - 2026-09-25
+
+### Fixed
+
+- *(core)* contain panic payload destruction
+
+## [0.3.16](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.15...cordis-core-v0.3.16) - 2026-09-25
+
+### Fixed
+
+- *(core)* finish era dependent barrier after input Drop panic
+
+## [0.3.15](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.14...cordis-core-v0.3.15) - 2026-09-25
+
+### Fixed
+
+- *(core)* keep committed update owned across input Drop panic
+
+## [0.3.14](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.13...cordis-core-v0.3.14) - 2026-09-25
+
+### Fixed
+
+- *(core)* pin committed apply work to completion runtime
+
+### Other
+
+- *(core)* await the restart contract, not its scheduler
+
+## [0.3.13](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.12...cordis-core-v0.3.13) - 2026-09-24
+
+### Other
+
+- *(core)* accept completed convergence in old-wake ready probe
+
+## [0.3.12](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.11...cordis-core-v0.3.12) - 2026-09-24
+
+### Fixed
+
+- *(core)* preserve cleanup barriers and dependent convergence across handoff ([#164](https://github.com/dshbox/cordis-rs/pull/164))
+
+## [0.3.11](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.10...cordis-core-v0.3.11) - 2026-09-24
+
+### Fixed
+
+- *(core)* include late source service edges in era swap preflight ([#162](https://github.com/dshbox/cordis-rs/pull/162))
+
+## [0.3.10](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.9...cordis-core-v0.3.10) - 2026-09-24
+
+### Fixed
+
+- fix v3 service mutation and ready lifecycle races ([#160](https://github.com/dshbox/cordis-rs/pull/160))
+
+## [0.3.9](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.8...cordis-core-v0.3.9) - 2026-09-19
+
+### Other
+
+- close operational failure maturity audit ([#156](https://github.com/dshbox/cordis-rs/pull/156))
+
+## [0.3.8](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.7...cordis-core-v0.3.8) - 2026-09-19
+
+### Other
+
+- *(core)* deepen lifecycle correctness assurance ([#151](https://github.com/dshbox/cordis-rs/pull/151))
+
+## [0.3.7](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.6...cordis-core-v0.3.7) - 2026-09-18
+
+### Other
+
+- define 1.0 compatibility policy ([#146](https://github.com/dshbox/cordis-rs/pull/146))
+
+## [0.3.6](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.5...cordis-core-v0.3.6) - 2026-09-16
+
+### Other
+
+- *(core)* replace watchdog polling with wakeup ([#143](https://github.com/dshbox/cordis-rs/pull/143))
+
+## [0.3.5](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.4...cordis-core-v0.3.5) - 2026-09-16
+
+### Fixed
+
+- *(core)* assert event hook order invariant ([#141](https://github.com/dshbox/cordis-rs/pull/141))
+
+## [0.3.4](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.3...cordis-core-v0.3.4) - 2026-09-16
+
+### Fixed
+
+- harden CI, release, and review contracts ([#138](https://github.com/dshbox/cordis-rs/pull/138))
+
+## [0.3.3](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.2...cordis-core-v0.3.3) - 2026-09-16
+
+### Other
+
+- tighten release docs and ci policy ([#136](https://github.com/dshbox/cordis-rs/pull/136))
+
+## [0.3.2](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.1...cordis-core-v0.3.2) - 2026-09-16
+
+### Fixed
+
+- harden shutdown and timer contracts ([#133](https://github.com/dshbox/cordis-rs/pull/133))
+
+### Other
+
+- *(core)* store removal release permit ([#135](https://github.com/dshbox/cordis-rs/pull/135))
+
+## [0.3.1](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.3.0...cordis-core-v0.3.1) - 2026-09-15
+
+### Other
+
+- *(core)* establish performance regression baseline ([#131](https://github.com/dshbox/cordis-rs/pull/131))
+
+## [0.3.0](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.12...cordis-core-v0.3.0) - 2026-09-15
+
+### Fixed
+
+- *(core)* remove unreachable lifecycle errors ([#127](https://github.com/dshbox/cordis-rs/pull/127))
+
+## [0.2.12](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.11...cordis-core-v0.2.12) - 2026-09-15
+
+### Fixed
+
+- *(core)* carry lifecycle attribution across task spawn ([#125](https://github.com/dshbox/cordis-rs/pull/125))
+
+## [0.2.11](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.10...cordis-core-v0.2.11) - 2026-09-15
+
+### Fixed
+
+- *(core)* release wait-state watchdog threads ([#123](https://github.com/dshbox/cordis-rs/pull/123))
+
+## [0.2.10](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.9...cordis-core-v0.2.10) - 2026-09-15
+
+### Other
+
+- *(core)* close era convergence contracts ([#119](https://github.com/dshbox/cordis-rs/pull/119))
+
+## [0.2.9](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.8...cordis-core-v0.2.9) - 2026-09-15
+
+### Other
+
+- *(core)* model era handoff ownership ([#117](https://github.com/dshbox/cordis-rs/pull/117))
+
+## [0.2.8](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.7...cordis-core-v0.2.8) - 2026-09-15
+
+### Other
+
+- *(core)* model era source arbitration ([#115](https://github.com/dshbox/cordis-rs/pull/115))
+
+## [0.2.7](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.6...cordis-core-v0.2.7) - 2026-09-15
+
+### Other
+
+- *(core)* close notify retry contracts ([#113](https://github.com/dshbox/cordis-rs/pull/113))
+
+## [0.2.6](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.5...cordis-core-v0.2.6) - 2026-09-15
+
+### Other
+
+- *(core)* pin inertia notify contracts ([#111](https://github.com/dshbox/cordis-rs/pull/111))
+
+## [0.2.5](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.4...cordis-core-v0.2.5) - 2026-09-15
+
+### Other
+
+- *(core)* close phase one convergence models ([#109](https://github.com/dshbox/cordis-rs/pull/109))
+
+## [0.2.4](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.3...cordis-core-v0.2.4) - 2026-09-15
+
+### Other
+
+- *(core)* model ready linearization ([#107](https://github.com/dshbox/cordis-rs/pull/107))
+
+## [0.2.3](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.2...cordis-core-v0.2.3) - 2026-09-15
+
+### Fixed
+
+- *(core)* commit service drift with visibility ([#102](https://github.com/dshbox/cordis-rs/pull/102))
+
+### Other
+
+- *(core)* model releasing kick authority ([#106](https://github.com/dshbox/cordis-rs/pull/106))
+- *(core)* model convergence invariants with loom ([#104](https://github.com/dshbox/cordis-rs/pull/104))
+
+## [0.2.2](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.1...cordis-core-v0.2.2) - 2026-09-15
+
+### Fixed
+
+- *(core)* report detached framework panics ([#97](https://github.com/dshbox/cordis-rs/pull/97))
+
+## [0.2.1](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.2.0...cordis-core-v0.2.1) - 2026-09-15
+
+### Other
+
+- update readmes for 0.8 release line ([#92](https://github.com/dshbox/cordis-rs/pull/92))
+
+## [0.2.0](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.1.3...cordis-core-v0.2.0) - 2026-09-15
+
+### Other
+
+- [**breaking**] rename Fork to FiberHandle ([#90](https://github.com/dshbox/cordis-rs/pull/90))
+
+### Changed
+
+- [**breaking**] rename the consumer lifecycle control type from `Fork` to `FiberHandle`; no compatibility alias is retained
+
+## [0.1.3](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.1.2...cordis-core-v0.1.3) - 2026-09-14
+
+### Fixed
+
+- *(events)* index listener claims ([#88](https://github.com/dshbox/cordis-rs/pull/88))
+
+## [0.1.2](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.1.1...cordis-core-v0.1.2) - 2026-09-14
+
+### Fixed
+
+- *(timer)* move admission probe behind internal seam ([#79](https://github.com/dshbox/cordis-rs/pull/79))
+
+### Other
+
+- replace scheduling spins with explicit signals ([#80](https://github.com/dshbox/cordis-rs/pull/80))
+
+## [0.1.1](https://github.com/dshbox/cordis-rs/compare/cordis-core-v0.1.0...cordis-core-v0.1.1) - 2026-09-14
+
+### Fixed
+
+- *(core)* stage internal admission seam ([#77](https://github.com/dshbox/cordis-rs/pull/77))
+- address post-v3 review findings ([#74](https://github.com/dshbox/cordis-rs/pull/74))
+
+## 0.1.0
+
+- First Cordis v3 `cordis-core` release line.

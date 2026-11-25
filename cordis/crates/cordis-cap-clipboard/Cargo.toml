@@ -1,0 +1,18 @@
+[package]
+name = "electron-cordis-cap-clipboard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Class-A Rust DSH capability plugin: @dsh/cap-clipboard (format-only inspection without leaking body)"
+
+[dependencies]
+cordis-core.workspace = true
+electron-cordis-kernel = { path = "../cordis-kernel" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

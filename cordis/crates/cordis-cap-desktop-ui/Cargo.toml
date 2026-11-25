@@ -1,0 +1,18 @@
+[package]
+name = "electron-cordis-cap-desktop-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "M3 Batch 2 Class-A Rust DSH plugins: @dsh/cap-tray-menu, @dsh/cap-notification, @dsh/cap-os-integration"
+
+[dependencies]
+cordis-core.workspace = true
+electron-cordis-kernel = { path = "../cordis-kernel" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
