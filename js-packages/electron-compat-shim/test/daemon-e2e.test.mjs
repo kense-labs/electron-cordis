@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,33 @@ function generateLoadPlan(profileRelativePath) {
   return { outDir, loadPlanPath: path.join(outDir, 'load-plan.json') };
 }
 
+test('e2e: standalone daemon refuses a load plan that requires embedded isolation', () => {
+  const { outDir, loadPlanPath } = generateLoadPlan('profiles/inkstone-headless.cordis.json');
+  try {
+    const plan = JSON.parse(readFileSync(loadPlanPath, 'utf8'));
+    for (const [entry, diagnostic] of [
+      [
+        { id: '@dsh/krun-runtime', runtime: 'rust', isolation: 'in-process', realm: 'core' },
+        /requires an embedded KRun runtime/,
+      ],
+      [
+        { id: '@dsh/runtime-node-host', runtime: 'rust', isolation: 'microvm', realm: 'core' },
+        /requires a trusted local process/,
+      ],
+    ]) {
+      writeFileSync(loadPlanPath, JSON.stringify({ ...plan, entries: [...plan.entries, entry] }));
+      const result = spawnSync(DAEMON_BIN, ['--load-plan', loadPlanPath], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, diagnostic);
+    }
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
 test('e2e: electron-compat-shim drives real electron-cordis-daemon across health -> ui_ready -> auth.swap -> compat caps -> shutdown', async () => {
   assert.ok(
     existsSync(DAEMON_BIN),
@@ -56,7 +83,7 @@ test('e2e: electron-compat-shim drives real electron-cordis-daemon across health
     assert.equal(h0.auth_generation, 0);
     assert.ok(h0.bundled_plugins > 0);
     assert.ok(h0.on_demand_plugins > 0);
-    assert.ok(Array.isArray(h0.krun_backends) && h0.krun_backends.length > 0);
+    assert.deepEqual(h0.krun_backends, []);
 
     // 2. Two-phase boot convergence: ui_ready -> auth.swap
     const ui = await client.notifyUiReady();

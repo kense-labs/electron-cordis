@@ -13,11 +13,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use electron_cordis_krun_plugins::PrivateVolumeWriterSeal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+
+mod writer_seal;
+
+use writer_seal::PrivateVolumeWriterSeal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupervisorConfig {
@@ -191,9 +194,7 @@ pub async fn run_supervised(cfg: &SupervisorConfig) -> Result<SupervisorReport, 
     let daemon_still_same_pid = daemon.pid() == daemon_pid;
     let clean_shutdown = daemon.shutdown().await?;
 
-    if let Some(s) = seal {
-        s.release();
-    }
+    drop(seal);
 
     Ok(SupervisorReport {
         headless: cfg.ui_bin.is_none(),

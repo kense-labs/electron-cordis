@@ -23,7 +23,6 @@ electron-cordis-cap-os-shell = { path = "../cordis-cap-os-shell" }
 electron-cordis-cap-platform = { path = "../cordis-cap-platform" }
 electron-cordis-cap-safe-storage = { path = "../cordis-cap-safe-storage" }
 electron-cordis-kernel = { path = "../cordis-kernel" }
-electron-cordis-krun-plugins = { path = "../cordis-krun-plugins" }
 electron-cordis-wire = { path = "../cordis-wire" }
 futures.workspace = true
 serde.workspace = true

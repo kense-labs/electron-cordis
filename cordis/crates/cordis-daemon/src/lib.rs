@@ -2,12 +2,11 @@
 //!
 //! Wires:
 //! - `RealmTopology` (`HostRealm` / `UiRealm` / `CoreRealm` / `UntrustedPluginRealm`)
-//! - `KrunRuntimePlugin` in `CoreRealm`
 //! - All M3 Class-A Rust capability plugins (Batch 1, Batch 2, Batch 3) in `HostRealm` / `CoreRealm`
 //! - Dual Chokepoints built on `cordis-core` v3 event waterfalls:
 //!   1. Tool Gateway (`ToolInvokeEvent` + `Around` approval guardrail + trajectory)
 //!   2. LLM Gateway (`LlmRequestEvent` + `Mapper` secret redaction + `Around` model guardrail + trajectory)
-//! - All 4 KRun Harness Projections:
+//! - Four optional harness protocol listeners:
 //!   - `bridge-mcp` (`--mcp-socket`, `/run/krun/dsh-mcp.sock`)
 //!   - `bridge-inkstone-tools` (`--native-tools-socket`, `/run/krun/host-tools.sock`)
 //!   - `bridge-acp` (`--acp-socket`, `/run/krun/dsh-rpc.sock`)
@@ -52,7 +51,6 @@ use electron_cordis_kernel::{
     LoadPlanManifest, RealmTopology, RegisteredTool, ToolCallEnvelope, ToolCallResult,
     ToolCatalog, ToolInvokeEvent, TrajectoryRecord, TwoPhaseBootState,
 };
-use electron_cordis_krun_plugins::{KrunBackendConfig, KrunRuntimePlugin, KrunRuntimeService};
 use electron_cordis_wire::{
     AcpPromptRequest, AcpSessionCreate, HarnessProjection, INKSTONE_NATIVE_CONTRACT_PROTOCOL,
     INKSTONE_NATIVE_CONTRACT_SHA256, INKSTONE_NATIVE_MAX_FRAME_BYTES, McpCallToolResult,
@@ -244,6 +242,20 @@ impl DaemonState {
     /// into their designated `ServiceRealm`s, and installs BOTH chokepoint pipelines
     /// (Tool Gateway `Around` + LLM Gateway `Mapper`/`Around`).
     pub async fn start(plan: Option<LoadPlanManifest>) -> Result<Self, String> {
+        if let Some(plan) = &plan {
+            if plan.entries.iter().any(|entry| {
+                entry.id == "@dsh/krun-runtime"
+                    || entry.inject.iter().any(|service| service == "krun.runtime")
+            }) {
+                return Err("load plan requires an embedded KRun runtime, which is unavailable; regenerate it with a standalone profile".into());
+            }
+            if plan.entries.iter().any(|entry| {
+                entry.id == NODE_HOST_PLUGIN_ID
+                    && !matches!(entry.isolation.as_str(), "in-process" | "trusted-host")
+            }) {
+                return Err("runtime-node-host requires a trusted local process; configure external isolation separately".into());
+            }
+        }
         let root = Context::new();
         let topology = RealmTopology::new(root).map_err(|e| e.to_string())?;
         let tools = ToolCatalog::default();
@@ -253,19 +265,6 @@ impl DaemonState {
             Some(p) => p.has_plugin(id),
             None => true,
         };
-
-        // L1 CoreRealm: KRun Runtime & Node Host plugins
-        if should_load("@dsh/krun-runtime") {
-            let handle = topology
-                .core
-                .spawn(PreparedPlugin::from_input(
-                    KrunRuntimePlugin,
-                    KrunBackendConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn @dsh/krun-runtime: {e}"))?;
-            roster.record("@dsh/krun-runtime", handle);
-        }
 
         if should_load(NODE_HOST_PLUGIN_ID) {
             let handle = topology
@@ -697,7 +696,6 @@ impl DaemonState {
                     input_schema: tool.input_schema,
                     requires_approval: tool.requires_approval,
                 };
-                self.tools.register(reg);
                 {
                     let mut fibers = self.shadow_fibers.lock().expect("shadow fibers lock");
                     let entry = fibers.entry(fiber_id.clone()).or_insert_with(|| ShadowFiberRecord {
@@ -713,6 +711,8 @@ impl DaemonState {
                 if let Some(p) = peer {
                     self.bind_peer_to_fiber(&fiber_id, p);
                 }
+                // A listed tool must already have its fiber and executor wired.
+                self.tools.register(reg);
                 Ok(json!({ "registered": tool.name, "fiber_id": fiber_id }))
             }
             ShadowFiberMessage::Dispose {
@@ -1134,17 +1134,6 @@ impl DaemonState {
                     Some(p) => (p.profile.as_str(), p.bundled_count(), p.on_demand_count()),
                     None => ("unconfigured", 0, 0),
                 };
-                let krun_backends: Vec<String> = self
-                    .topology
-                    .core
-                    .try_service::<KrunRuntimeService>()
-                    .map(|s| {
-                        s.registered_backend_ids()
-                            .into_iter()
-                            .map(|b| b.to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default();
                 (
                     ok(json!({
                         "schema": WIRE_SCHEMA,
@@ -1155,7 +1144,7 @@ impl DaemonState {
                         "bundled_plugins": bundled,
                         "on_demand_plugins": on_demand,
                         "registered_tools": self.tools.list().len(),
-                        "krun_backends": krun_backends,
+                        "krun_backends": [],
                         "projections": [
                             HarnessProjection::Mcp.default_guest_socket(),
                             HarnessProjection::InkstoneToolsV1.default_guest_socket(),

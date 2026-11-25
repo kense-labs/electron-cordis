@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
 
-const WEB_ROOT = resolve(import.meta.dirname, '../../web');
+const WEB_ROOT = resolve(process.env.INKSTONE_WEB_ROOT || resolve(import.meta.dirname, '../../web'));
 const requireFromWeb = createRequire(resolve(WEB_ROOT, 'package.json'));
 const YAML = requireFromWeb('yamljs');
 

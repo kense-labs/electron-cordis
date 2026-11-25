@@ -98,6 +98,8 @@ class TestM1BuildPipeline(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "darwin", "macOS canary config test requires darwin")
     def test_macos_side_by_side_canary_config_isolation_and_slim_pack(self) -> None:
+        if not os.environ.get("INKSTONE_WEB_ROOT") and not (ROOT.parent / "web" / "electron-builder.yml").is_file():
+            self.skipTest("set INKSTONE_WEB_ROOT to test the optional Inkstone canary")
         base_env = {**os.environ, "ELECTRON_CORDIS_ALLOW_STOCK_DRYRUN": "1"}
         base_env.pop("INKSTONE_CORE_RUNTIME_BUILD_PROFILE", None)
 

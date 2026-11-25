@@ -11,7 +11,7 @@ OUT_DIR="${1:-${ROOT_DIR}/dist/cordis-headless}"
 echo "[pack-inkstone-headless] 1/4 Building release Rust microkernel daemon & Stage B supervisor..."
 (
   cd "${CORDIS_DIR}"
-  cargo build --release -p electron-cordis-daemon -p electron-cordis-supervisor
+  cargo build --locked --release -p electron-cordis-daemon -p electron-cordis-supervisor
 )
 
 echo "[pack-inkstone-headless] 2/4 Compiling frozen headless LoadPlan..."

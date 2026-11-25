@@ -1,6 +1,8 @@
 # `electron-cordis` 架构设计：书生·端砚（Inkstone）APP 底座插件化轻量化无缝平替方案
 
-> **目标**：将 `electron-cordis` 改造为基于 `cordis-rs` v3 微内核、深度融合 `../krun` 异构隔离底座、原生对齐 `../core`（`inkstone-harness`，基于 `@deepseek-ai/cordis` + `@deepseek-ai/dsh`）与社区 **DeepSeek Harness (`dsh`)** 插件生态的下一代跨平台桌面与无头运行时，实现对当前端砚桌面底座（`electron@43.2.0` + `../web/src/main`）的**插件化、轻量化、零破坏无缝平替**（**零 Go 运行时依赖**）。
+> **目标**：基于 `cordis-rs` v3 构建可独立发布的跨平台桌面和无头运行时，支持 DeepSeek Harness（`dsh`）插件和端砚 Electron 兼容能力。
+
+Electron Cordis 和 KRun 各自构建、启动和发布。Electron Cordis 提供可显式开启的协议监听端点，调用方可在独立的隔离环境中连接。需要微虚拟机、Wasm 或 OS 沙箱的插件由外部隔离环境负责；内置宿主进程只适用于受信任的本地执行。已生成的内嵌 KRun LoadPlan 需要用更新后的 profile 重新生成。
 
 ## 1. 现状诊断与 6 条不可违背红线
 
@@ -30,10 +32,8 @@ flowchart TB
         Loader --> Kernel --> Gate
     end
 
-    subgraph L1["L1 跨平台隔离执行面 (../krun 插件化)"]
-        Sched["BackendRegistry (mac=KiriVz / win=KiriWin / linux=Krun, FailClosed)"]
-        Light["OsSandbox / Wasm (WIT) / Node Worker Host"]
-        Sched <--> Light
+    subgraph L1["L1 独立的调用方执行环境"]
+        Exec["调用方管理进程与隔离策略"]
     end
 
     subgraph L2["L2 端砚桌面宿主与平替适配层"]
@@ -45,25 +45,25 @@ flowchart TB
         Compat --> OSCaps & WebSurf
     end
 
-    subgraph L3["L3 统一 DSH 插件生态 & KRun 异构 Harness 投影"]
+    subgraph L3["L3 DSH 插件联邦与 Harness 协议"]
         DshHost["Shadow Fiber 联邦宿主 (@deepseek-ai/dsh-* / Wasm / Rust)"]
-        Proj["KRun Guest 稳定投影端点 (/run/krun/*.sock & vsock)\n• dsh-mcp.sock (MCP)\n• host-tools.sock (Host Native Contract / inkstone.tools.v1)\n• dsh-rpc.sock (ACP / dsh-sdk-protocol)\n• llm-gateway.sock (Model Proxy)"]
-        Harnesses["KRun 内任意 Harness\ninkstone-harness (../core DSH) | 通用 DSH TS | Claude/Codex | Python/Rust ACP"]
+        Proj["可配置监听端点\n• MCP\n• Host Native Contract / inkstone.tools.v1\n• ACP / dsh-sdk-protocol\n• LLM Gateway"]
+        Harnesses["外部 Harness\nInkstone Harness | DSH | MCP/ACP 客户端"]
         Proj <--> Harnesses
     end
 
     Prof --> Loader
-    Kernel <--> Sched
+    Exec --> Harnesses
     Kernel <--> WebSurf & OSCaps & DshHost
     Gate <-->|"四通道分离 (Control / ACP / Tool RPC / Byte Stream)"| Proj
 ```
 
 ## 3. 已锁定的默认架构选型（P0–P1）
 
-1. **纯 Rust + Node/TS（零 Go 依赖）**：全栈收敛为 Rust（`cordis-rs` 微内核 + `../krun` + A 类宿主能力插件）+ 精简 Chromium（`electron-web-surface`）+ TypeScript/Node（`../core` `inkstone-harness` 及社区 `@deepseek-ai/dsh-*` 插件）。
+1. **纯 Rust + Node/TS（零 Go 依赖）**：Rust 微内核与宿主能力插件、精简 Chromium UI 和 TypeScript/Node 协议客户端。
 2. **PDF 预览双轨策略**：P0 平替期在 `inkstone-desktop` Profile 中以可选 GN 插件 `@dsh/electron-pdf-viewer` 保留 Chromium PDF 预览（确保前端零改动），在 `inkstone-headless` / 极简 Profile 中默认关闭；中期可与 `../core` 已有的 `@embedpdf/pdfium` / PDF.js 方案合流，彻底关闭 `enable_pdf` 与 `enable_electron_extensions`。
-3. **Stage A 内核接入形态**：`cordis-rs` 微内核作为**独立本地守护进程（UDS / Windows Named Pipe）**运行，延续 `../krun` 窄对接形态，并平滑演进到 Stage B（Rust 顶层 Supervisor 按需拉起 Electron-Cordis UI，Headless 零 Chromium）。
-4. **内核源码内化与 `../krun` 复用**：将 `dshbox/cordis-rs` 的 `cordis-core`、`cordis-loader`、`cordis-timer`（MIT）**直接源码内化至 `cordis/crates/`**，作为仓内自有核心 crate 持续演进，不依赖外部 crates.io 版本；同时通过 Cargo `path` 直接依赖兄弟目录 `../../krun/crates/*`。
+3. **运行形态**：`cordis-daemon` 作为独立本地守护进程运行。Rust Supervisor 按需拉起 UI，Headless 发行包省略 Chromium。
+4. **独立构建**：`cordis-core`、`cordis-loader`、`cordis-timer`（MIT）维护在 `cordis/crates/`。单独检出本仓库即可运行 `cargo build --locked --workspace --manifest-path cordis/Cargo.toml`。
 
 ## 4. 能力分类与按需构建（A / B / C）
 
@@ -74,7 +74,7 @@ flowchart TB
 ## 5. 五阶段无缝平替路线图
 
 - **P0**：落地 `buildflags/cordis_plugins.gni` 与 Profile → `args.gn` 生成器，建立 `inkstone-desktop` / `inkstone-headless` / `dsh-studio` 三套标准 Profile，验证 `electronDist` 平替。
-- **P1**：在 `cordis/` 建立 `cordis-rs` v3 + `../krun` 插件化微内核，落实 `ServiceRealm`（`HostRealm` / `UiRealm` / `CoreRealm` / `UntrustedPluginRealm`）、两阶段延迟收敛（`UiReadyService` + `AuthSessionService`）、`update()` vs `era_swap()`。
+- **P1**：在 `cordis/` 建立独立的 `cordis-rs` v3 插件化微内核，落实 `ServiceRealm`（`HostRealm` / `UiRealm` / `CoreRealm` / `UntrustedPluginRealm`）、两阶段延迟收敛（`UiReadyService` + `AuthSessionService`）、`update()` vs `era_swap()`。
 - **P2**：分批下沉 A 类 OS 能力为 Rust DSH 插件，提供 `@dsh/electron-compat` 垫片实现端砚业务零改动穿透。
 - **P3**：实现 `Cordis-over-Wire`、`Shadow Fiber`、`@dsh/cordis-bridge` 及 MCP / `inkstone.tools.v1`（对接 `../core/contracts/native`）/ ACP / LLM Gateway 投影插件，使 `inkstone-harness` 及 KRun 内任意异构 Harness 透明复用全量 DSH 插件。
 - **P4**：渐进将 `../web/src/main/features/*` 迁出 `create-features.ts` 成为原生 DSH 插件，交付真正零 Chromium 的 `inkstone-headless` 发行包。

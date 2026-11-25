@@ -10,12 +10,13 @@ Verifies four invariants:
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-INKSTONE_ROOT = ROOT.parent
+WEB_ROOT = pathlib.Path(os.environ.get("INKSTONE_WEB_ROOT") or ROOT.parent / "web").resolve()
 
 EXPECTED_PRELOAD_KEYS = {
     "desktopTransport",
@@ -44,7 +45,7 @@ def main() -> None:
     errors: list[str] = []
 
     # 1. Preload allowlist check
-    preload = INKSTONE_ROOT / "web" / "src" / "preload" / "index.ts"
+    preload = WEB_ROOT / "src" / "preload" / "index.ts"
     if preload.is_file():
         text = preload.read_text(encoding="utf-8")
         exposed = set(re.findall(r"exposeInMainWorld\(\s*['\"]([^'\"]+)['\"]", text))
@@ -53,10 +54,10 @@ def main() -> None:
                 f"preload exposeInMainWorld mismatch: got {sorted(exposed)}, expected {sorted(EXPECTED_PRELOAD_KEYS)}"
             )
     else:
-        errors.append(f"missing sibling preload file: {preload}")
+        errors.append(f"missing Inkstone preload file: {preload}")
 
     # 2. Renderer zero-leak scan
-    renderer_dir = INKSTONE_ROOT / "web" / "src" / "renderer"
+    renderer_dir = WEB_ROOT / "src" / "renderer"
     if renderer_dir.is_dir():
         compiled = [re.compile(pat) for pat in FORBIDDEN_RENDERER_PATTERNS]
         for path in renderer_dir.rglob("*"):
@@ -65,7 +66,7 @@ def main() -> None:
             content = path.read_text(encoding="utf-8", errors="ignore")
             for pat in compiled:
                 if pat.search(content):
-                    errors.append(f"renderer leak ({pat.pattern}) in {path.relative_to(INKSTONE_ROOT)}")
+                    errors.append(f"renderer leak ({pat.pattern}) in {path.relative_to(WEB_ROOT)}")
 
     # 3. Internalized cordis-rs check (no external crates.io cordis-* version specs)
     cargo_toml = ROOT / "cordis" / "Cargo.toml"

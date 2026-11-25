@@ -5,6 +5,8 @@
 
 为避免日常迭代被 Chromium 重编阻塞，`electron-cordis` 的构建分为三个独立层级，各层对宿主机硬件、磁盘与工具链的要求严格区分：
 
+Tier 1 可从独立检出的 Electron Cordis 仓库执行。Tier 2 的端砚候选包是可选的应用集成构建，可用 `INKSTONE_WEB_ROOT` 指定端砚 `web/` 的位置。
+
 ---
 
 ## 一、三级构建环境矩阵

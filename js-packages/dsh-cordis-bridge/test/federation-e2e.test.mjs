@@ -106,7 +106,7 @@ test('M4 e2e: standard DSH JS plugin + Rust cap-clipboard federated across MCP &
     const health = await control.request('cordis.health');
     assert.equal(health.profile, 'unconfigured');
 
-    // Connect ALL 4 KRun Harness projections + ShadowFiber JS plugin host
+    // Connect the four external harness protocols and the ShadowFiber JS plugin host.
     mcpConn = await connectUnixJsonRpc(mcpSock);
     nativeConn = await connectUnixJsonRpc(nativeSock);
     acpConn = await connectUnixJsonRpc(acpSock);
@@ -194,7 +194,7 @@ test('M4 e2e: standard DSH JS plugin + Rust cap-clipboard federated across MCP &
       tool: 'dsh.clipboard_digest',
       input: { prefix: 'inkstone' },
     });
-    assert.equal(nativeJsRes.ok, true);
+    assert.equal(nativeJsRes.ok, true, nativeJsRes.error);
     assert.equal(nativeJsRes.output.label, 'inkstone:21');
     assert.equal(nativeJsRes.output.safe_storage_denied, true);
 

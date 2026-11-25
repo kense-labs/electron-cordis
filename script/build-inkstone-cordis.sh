@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CORDIS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WEB_ROOT="$(cd "${CORDIS_ROOT}/../web" && pwd)"
+INKSTONE_WEB_ROOT="$(cd "${INKSTONE_WEB_ROOT:-${CORDIS_ROOT}/../web}" && pwd)"
+export INKSTONE_WEB_ROOT
 PROFILE="${1:-inkstone-desktop}"
 OUT_PLAN="${CORDIS_ROOT}/cordis/target/generated/${PROFILE}"
 
@@ -20,8 +21,8 @@ python3 "${CORDIS_ROOT}/script/gen-module-registry.py" \
   "${OUT_PLAN}/build-plan.json" \
   --out-dir "${OUT_PLAN}"
 
-echo "[build-inkstone-cordis] 3/3 Running isolated electron-builder in ../web..."
-cd "${WEB_ROOT}"
+echo "[build-inkstone-cordis] 3/3 Running isolated electron-builder in ${INKSTONE_WEB_ROOT}..."
+cd "${INKSTONE_WEB_ROOT}"
 case "$(uname -s)" in
   Darwin)
     pnpm exec electron-builder --mac dir --arm64 \

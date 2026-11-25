@@ -1,4 +1,4 @@
-//! `@dsh/cap-os-shell` — Class-A OS shell & bounded host exec plugin aligned with KRun Plane A S1–S6.
+//! `@dsh/cap-os-shell` — OS shell operations and bounded trusted host execution.
 //!
 //! Security invariants (Plane A S1–S6):
 //! - S1 (Zero shell concatenation): NEVER constructs or executes `sh -c` / `bash -c` / `cmd /c` /
@@ -6,21 +6,22 @@
 //! - S2 (URL scheme allowlist): `openExternal` allows ONLY `https://`, `http://`, and `mailto:`;
 //!   rejects `file://`, `javascript:`, `data:`, `smb://`, control characters, whitespace, and NUL.
 //! - S3 (Path hardening): `showItemInFolder` rejects NUL, empty paths, and `..` traversal; when
-//!   `workspace_root` is configured, validates containment via `krun_tools::PathSandbox`.
-//! - S4–S6 (Bounded Plane A exec): `execArgv` executes explicit `argv` through `krun_tools::CommandPolicy`
-//!   with cleared environment, bounded timeout, and `PathSandbox` working-directory verification.
+//!   `workspace_root` is configured, validates containment within that workspace.
+//! - S4–S6 (Bounded execution): `execArgv` uses a cleared environment, bounded time and output,
+//!   and working-directory verification.
 
-use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use cordis_core::{Context, Plugin, Service};
-use krun_tools::{CommandPolicy, CommandSpec, NativeCommandBuilder, PathSandbox};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
+
+mod command;
+mod workspace_path;
 
 pub const PLUGIN_ID: &str = "@dsh/cap-os-shell";
 pub const SERVICE_NAME: &str = "cap.os-shell";
@@ -63,7 +64,7 @@ pub struct OsShellConfig {
     /// fixed `argv` that would be spawned without launching GUI apps (safe for CI/headless tests).
     #[serde(default = "default_dry_run")]
     pub dry_run_open: bool,
-    /// Optional workspace root enforced via `krun_tools::PathSandbox` for `showItemInFolder` & `execArgv`.
+    /// Optional workspace root for `showItemInFolder` and `execArgv`.
     #[serde(default)]
     pub workspace_root: Option<PathBuf>,
 }
@@ -109,7 +110,7 @@ pub fn validate_external_url(url: &str) -> Result<String, OsShellError> {
     Ok(url.to_string())
 }
 
-/// Validates a filesystem path for `showItemInFolder` (no NUL, no `..`, optional PathSandbox check).
+/// Validates a filesystem path for `showItemInFolder`.
 pub fn validate_folder_path(
     raw: &str,
     workspace_root: Option<&Path>,
@@ -128,25 +129,10 @@ pub fn validate_folder_path(
             "path traversal (`..`) is forbidden".into(),
         ));
     }
-    if let Some(root) = workspace_root {
-        let sandbox = PathSandbox::new(root.to_path_buf(), true)
-            .map_err(|e| OsShellError::PolicyDenied(format!("sandbox init failed: {e}")))?;
-        let rel = if path.is_absolute() {
-            let stripped = path
-                .strip_prefix(sandbox.root())
-                .or_else(|_| path.strip_prefix(root))
-                .map_err(|_| {
-                    OsShellError::PolicyDenied("path outside workspace sandbox".into())
-                })?;
-            stripped.to_string_lossy().into_owned()
-        } else {
-            raw.to_string()
-        };
-        return sandbox
-            .resolve(&rel)
-            .map_err(|e| OsShellError::PolicyDenied(format!("path outside workspace sandbox: {e}")));
+    match workspace_root {
+        Some(root) => workspace_path::resolve(&path, root),
+        None => Ok(path),
     }
-    Ok(path)
 }
 
 /// Validates an `argv` array against Plane A S1: rejects empty argv, NUL bytes, and shell interpreters.
@@ -210,7 +196,6 @@ fn fixed_reveal_argv(path: &Path) -> Vec<String> {
 #[derive(Clone)]
 pub struct OsShellService {
     config: OsShellConfig,
-    policy: CommandPolicy,
 }
 
 impl Service for OsShellService {
@@ -225,13 +210,7 @@ impl Default for OsShellService {
 
 impl OsShellService {
     pub fn new(config: OsShellConfig) -> Self {
-        Self {
-            config,
-            policy: CommandPolicy {
-                builder: Arc::new(NativeCommandBuilder),
-                output: None,
-            },
-        }
+        Self { config }
     }
 
     pub async fn open_external(&self, url: &str) -> Result<Value, OsShellError> {
@@ -289,7 +268,7 @@ impl OsShellService {
         .map_err(|e| OsShellError::Runtime(format!("join error: {e}")))?
     }
 
-    /// Bounded Plane A argv-only execution routed through `krun_tools::CommandPolicy`.
+    /// Runs a trusted host command with bounded time and output.
     pub async fn exec_argv(
         &self,
         argv: Vec<String>,
@@ -308,24 +287,16 @@ impl OsShellService {
             None => workspace_root.clone(),
         };
 
-        let mut env = BTreeMap::new();
-        if let Ok(path) = std::env::var("PATH") {
-            env.insert("PATH".to_string(), path);
+        let mut command = std::process::Command::new(&argv[0]);
+        command
+            .args(&argv[1..])
+            .current_dir(resolved_cwd)
+            .env_clear();
+        if let Some(path) = std::env::var_os("PATH") {
+            command.env("PATH", path);
         }
-
-        let spec = CommandSpec {
-            argv,
-            cwd: resolved_cwd,
-            workspace_root,
-            read_only: true,
-            env,
-            timeout,
-        };
-        let policy = self.policy.clone();
         tokio::task::spawn_blocking(move || {
-            policy
-                .run(&spec, None)
-                .map_err(|e| OsShellError::Runtime(e.to_string()))
+            command::run(command, timeout).map_err(|e| OsShellError::Runtime(e.to_string()))
         })
         .await
         .map_err(|e| OsShellError::Runtime(format!("join error: {e}")))?
@@ -470,7 +441,7 @@ mod tests {
             );
         }
 
-        // Direct non-shell binary runs bounded through krun_tools::CommandPolicy.
+        // Direct non-shell binary runs with bounded time and output.
         let echo = svc
             .call_compat(
                 "execArgv",

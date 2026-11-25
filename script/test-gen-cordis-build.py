@@ -108,7 +108,7 @@ class GenCordisBuildTests(unittest.TestCase):
                             "name": f"bad-{field}",
                             "plugins": [
                                 {
-                                    "id": "@dsh/krun-runtime",
+                                    "id": "@dsh/cap-safe-storage",
                                     "runtime": "rust",
                                     field: bad_val,
                                 }

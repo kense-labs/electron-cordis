@@ -1,6 +1,6 @@
 # `electron-cordis` 开发计划（M0–M5）
 
-> **目标**：基于 `cordis-rs` v3 微内核 + `../krun` 异构隔离底座，将 `electron-cordis` 打造为兼容 DeepSeek Harness (`dsh`) 插件、**零 Go 运行时依赖**的跨平台异构 Harness Runtime，实现对当前端砚（Inkstone）APP 底座（`../web` + `../core` `inkstone-harness`）的插件化、轻量化无缝平替。
+> **目标**：基于 `cordis-rs` v3 微内核，将 `electron-cordis` 打造为可独立构建和发布的跨平台运行时，兼容 DeepSeek Harness（`dsh`）插件与端砚桌面能力。
 >
 > **构建机环境与工具链要求**：见 [build-host-requirements.md](./build-host-requirements.md)（可执行 `python3 script/check-build-host.py --tier <headless|canary-pack|chromium-base>` 预检）。
 
@@ -10,7 +10,7 @@
 flowchart LR
     M0["M0: 骨架联通与门禁基线\n(1周)"]
     M1["M1: Electron-Lite 按需构建裁剪\n(2周 · 泳道A)"]
-    M2["M2: Cordis-rs + KRun 微内核闭环\n(2周 · 泳道B)"]
+    M2["M2: Cordis-rs 独立微内核\n(2周 · 泳道B)"]
     M3["M3: A类 OS 能力 Rust DSH 插件化\n+ electron-compat 垫片\n(3周 · 泳道B+D)"]
     M4["M4: Shadow Fiber 联邦与\nKRun 异构 Harness 投影\n(3周 · 泳道C)"]
     M5["M5: 端砚全量平替候选\n+ 零Chromium Headless 交付\n(2周 · 全栈合流)"]
@@ -22,7 +22,7 @@ flowchart LR
 ```
 
 - **泳道 A（Chromium/GN 裁剪）**：GN 条件注册器、`Prebuilt Electron-Cordis Base` 缓存与 C 类模块裁除。
-- **泳道 B（Rust 微内核与宿主插件）**：`cordis-kernel`、`cordis-krun-plugins`、A 类 OS 能力 Rust DSH 插件。
+- **泳道 B（Rust 微内核与宿主插件）**：`cordis-kernel`、守护进程、A 类 OS 能力 Rust DSH 插件。
 - **泳道 C（DSH 异构联邦与 KRun 投影）**：`cordis-wire`、`@dsh/cordis-bridge`、MCP / `Host Native Contract` / ACP / LLM Gateway 投影。
 - **泳道 D（端砚无缝平替集成）**：`@dsh/electron-compat`、`../web` 候选包 `electronDist` 接线与全量回归。
 
@@ -31,7 +31,7 @@ flowchart LR
 ### M0：内化 `cordis-rs` 源码、骨架验证与门禁基线（第 1 周）
 - **M0.0**：运行 `script/internalize-cordis-rs.sh`，将 `dshbox/cordis-rs` 的 `cordis-core`、`cordis-loader`、`cordis-timer` 源码与 MIT `LICENSE` 内化至 `cordis/crates/`，生成 `cordis/UPSTREAM-CORDIS.json` 溯源记录（零外部 `cordis-*` crates.io 依赖）。
 - **M0.1**：为 `script/gen-cordis-build.py` 补齐正反例测试（未知插件、非法 isolation、无 `web-surface` 声明 GN 插件、PDF 依赖断言）。
-- **M0.2**：跑通 `cordis/` Rust workspace 编译与单测（验证内化的 `cordis-core`/`cordis-loader`/`cordis-timer` 与 `../../krun/crates/runtime` 联通）。
+- **M0.2**：从独立检出的仓库跑通 `cordis/` Rust 工作区的锁定构建与测试。
 - **M0.3**：落地 `script/check-inkstone-parity.py`，守卫 Preload 4 对象白名单与 Renderer 零 `KRUN_*` / 零 `ServiceRealm` 泄漏。
 - **门禁**：`cordis/Cargo.toml` 中零外部 `cordis-*` 注册表依赖；`gen-cordis-build.py` 测试全绿；`cargo check --workspace && cargo test --workspace` 全绿；`inkstone-headless` 输出 `build_chromium = false`。
 
@@ -43,15 +43,15 @@ flowchart LR
 - **M1.5**：在 `../web` 新增完全隔离的并行构建配置（`cordis-mac-candidate-config.mjs` / `cordis-windows-candidate-config.mjs`，输出至 `dist/cordis-*`，独立 `appId`/`stateRoot`/`cordis-canary` 通道），经 `electronDist` 指向 `electron-cordis` Base，**绝不改动原生 `electron@43.2.0` 正式构建与打包脚本**。
 - **门禁**：原生 Electron 端砚构建/发布链路零改动且全绿；并行产出的 `electron-cordis` 候选包与原生端砚可同机共存启动，通过 `pnpm test:electron-only`、`pnpm test:e2e:launch`、SSO 隔离登录、PDF/Office 预览、拖拽附件与 `better-sqlite3`。
 
-### M2：`cordis-rs` 微内核 + `../krun` 插件化（第 2–3 周 · 泳道 B）
+### M2：独立的 `cordis-rs` 微内核（第 2–3 周 · 泳道 B）
 - **M2.1**：在 `cordis-kernel` 落地 `cordis-loader` 装载管线与四域 `ServiceRealm`（`HostRealm` / `UiRealm` / `CoreRealm` / `UntrustedPluginRealm`）。
-- **M2.2**：将 `../krun` 的 `backend-kiri-vz`、`backend-kiri-win`、`backend-os-sandbox`、`backend-wasm`、`backend-vm` 封装为可按需编译的 `cordis::Plugin`。
-- **M2.3**：将单写私有卷 Writer Seal、`host_tools` 令牌与 `/guest-shares` 热挂做成 Generation 级 `ctx.effect`，验证 `update()` 不重启 VM、`era_swap()` 必过撤权清理屏障。
+- **M2.2**：调用方负责隔离环境，通过显式配置的协议端点接入 Electron Cordis。
+- **M2.3**：由 Supervisor 管理单写卷锁，确保 UI 重启期间卷锁仍由原进程持有。
 - **M2.4**：实现 `cordis-daemon`（Stage A 本地守护进程，UDS / Named Pipe），落地 `UiReadyService` + `AuthSessionService` 两阶段延迟收敛与双咽喉管线（Tool Gateway / LLM Gateway）。
-- **门禁**：`UntrustedPluginRealm` 零 fallback 安全单测通过；`update()` 热挂不重启 VM；`era_swap()`/`dispose()` 撤权屏障通过；缺驱动严格 FailClosed。
+- **门禁**：`UntrustedPluginRealm` 零 fallback 安全单测、Supervisor 卷锁测试和旧内嵌 KRun LoadPlan 拒绝测试通过。
 
 ### M3：A 类 OS 能力 Rust DSH 插件化 + 兼容垫片（第 4–6 周 · 泳道 B + D）
-- **Batch 1（安全与文件核心）**：`cap-safe-storage`、`cap-clipboard`、`cap-dialog`、`cap-os-shell`（整合 KRun Plane A S1–S6）。
+- **Batch 1（安全与文件核心）**：`cap-safe-storage`、`cap-clipboard`、`cap-dialog`、`cap-os-shell`（含命令超时、输出上限和工作目录校验）。
 - **Batch 2（桌面交互能力）**：`cap-tray-menu`、`cap-notification`、`cap-os-integration`（含双语热重装与启动意图 FIFO）。
 - **Batch 3（高成本可选能力）**：`cap-desktop-capture`、`cap-updater`（保留 Full App + Ed25519 Renderer-only 双通道）、`runtime-node-host`。
 - **同步交付 `@dsh/electron-compat`**：拦截 `require('electron')` A 类子模块路由至 `cordis-daemon`，每完成一批即从 `profiles/inkstone-desktop.cordis.json` 移除对应 `@dsh/electron-legacy-*` 并剔除 C++ 绑定。
@@ -61,7 +61,7 @@ flowchart LR
 - **M4.1**：实现 `Cordis-over-Wire` 与 `RemoteDshPluginFiber`（`inject` 延迟收敛、`ctx.effect` 双向逆序清理、断连 S3 强杀）。
 - **M4.2**：实现 `@dsh/cordis-bridge`（完整兼容 `@deepseek-ai/cordis` API，同时支持宿主机 `runtime-node-host` 与 KRun Guest Node）。
 - **M4.3**：实现 4 个投影插件：`bridge-inkstone-tools`（对接 `../core/contracts/native`）、`bridge-mcp`（`/run/krun/dsh-mcp.sock`）、`bridge-acp`（`/run/krun/dsh-rpc.sock`）、`llm-gateway`（`/run/krun/llm-gateway.sock`）。
-- **M4.4**：接入 `backend-wasm`（WIT）轻量插件宿主。
+- **M4.4**：外部 Wasm 宿主可通过同一协议接入，隔离策略由宿主提供。
 - **门禁**：同一社区 `@deepseek-ai/dsh-*` 插件 + `@dsh/cap-clipboard` + `Around` 审批护栏，同时在 KRun 内被 `../core`（`inkstone-harness`）、标准 MCP Harness 与 ACP Harness 透明调用，轨迹与热卸载清理一致生效。
 
 ### M5：双轨并行灰度稳定、零 Chromium Headless 与全面替换准入（第 7–8 周 · 全栈合流）

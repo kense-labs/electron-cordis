@@ -19,8 +19,7 @@ import sys
 from typing import Any
 
 KNOWN_PLUGINS: dict[str, dict[str, Any]] = {
-    # L0/L1 KRun & protocol projection plugins (Rust)
-    "@dsh/krun-runtime": {"class": "rust", "cargo_feature": "krun-runtime"},
+    # Protocol projection plugins (Rust)
     "@dsh/bridge-mcp": {"class": "rust", "cargo_feature": "bridge-mcp"},
     "@dsh/bridge-inkstone-tools": {"class": "rust", "cargo_feature": "bridge-inkstone"},
     "@dsh/bridge-acp": {"class": "rust", "cargo_feature": "bridge-acp"},

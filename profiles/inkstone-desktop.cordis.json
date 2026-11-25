@@ -1,62 +1,34 @@
 {
   "schema": "electron-cordis.profile.v1",
   "name": "inkstone-desktop",
-  "description": "Drop-in pluginized replacement for Inkstone Desktop (Electron 43 parity + KRun + DSH plugins).",
-  "krun": {
-    "default_backend": "auto",
-    "fail_closed": true
-  },
+  "description": "Electron-Cordis desktop profile with Inkstone compatibility and DSH plugins.",
   "plugins": [
-    {
-      "id": "@dsh/krun-runtime",
-      "runtime": "rust",
-      "isolation": "in-process",
-      "realm": "core",
-      "config": {
-        "private_volume_single_writer": true,
-        "guest_stable_paths": ["/core-state", "/guest-shares", "/run/krun"]
-      }
-    },
     {
       "id": "@dsh/bridge-inkstone-tools",
       "runtime": "rust",
       "isolation": "in-process",
       "realm": "core",
-      "inject": ["krun.runtime", "cap.os-shell"],
-      "config": {
-        "guest_socket": "/run/krun/host-tools.sock",
-        "vsock_port": 4051
-      }
+      "inject": ["cap.os-shell"]
     },
     {
       "id": "@dsh/bridge-mcp",
       "runtime": "rust",
       "isolation": "in-process",
       "realm": "core",
-      "inject": ["krun.runtime", "plane_b.tool_catalog"],
-      "config": {
-        "guest_socket": "/run/krun/dsh-mcp.sock"
-      }
+      "inject": ["plane_b.tool_catalog"]
     },
     {
       "id": "@dsh/bridge-acp",
       "runtime": "rust",
       "isolation": "in-process",
       "realm": "core",
-      "inject": ["krun.runtime", "plane_b.tool_catalog"],
-      "config": {
-        "guest_socket": "/run/krun/dsh-rpc.sock"
-      }
+      "inject": ["plane_b.tool_catalog"]
     },
     {
       "id": "@dsh/llm-gateway",
       "runtime": "rust",
       "isolation": "in-process",
-      "realm": "core",
-      "inject": ["krun.runtime"],
-      "config": {
-        "guest_socket": "/run/krun/llm-gateway.sock"
-      }
+      "realm": "core"
     },
     {
       "id": "@dsh/cap-safe-storage",
@@ -98,10 +70,7 @@
       "id": "@dsh/cap-os-shell",
       "runtime": "rust",
       "isolation": "trusted-host",
-      "realm": "host",
-      "config": {
-        "sandbox_authority": "krun"
-      }
+      "realm": "host"
     },
     {
       "id": "@dsh/cap-updater",
@@ -130,7 +99,7 @@
       "isolation": "os-sandbox",
       "delivery": "on-demand",
       "realm": "untrusted-plugin",
-      "inject": ["krun.runtime", "host.plugin_installer"]
+      "inject": ["host.plugin_installer"]
     },
     {
       "id": "@dsh/plugin-feishu",
@@ -193,18 +162,11 @@
       "inject": ["ui.web_surface"]
     },
     {
-      "id": "@dsh/runtime-node-host",
-      "runtime": "rust",
-      "isolation": "microvm",
-      "realm": "untrusted-plugin",
-      "inject": ["krun.runtime"]
-    },
-    {
       "id": "@dsh/inkstone-harness",
       "runtime": "node-dsh",
       "isolation": "microvm",
       "realm": "core",
-      "inject": ["ui.ready", "auth.session", "krun.runtime", "bridge.inkstone_tools", "gateway.llm"],
+      "inject": ["ui.ready", "auth.session", "bridge.inkstone_tools", "gateway.llm"],
       "config": {
         "entry": "dist/host-turn.js",
         "native_contract": "contracts/native"
