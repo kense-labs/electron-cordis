@@ -16,9 +16,9 @@ PROFILES = ROOT / "profiles"
 
 
 class GenCordisBuildTests(unittest.TestCase):
-    def run_gen(self, profile: pathlib.Path, out_dir: pathlib.Path) -> subprocess.CompletedProcess[str]:
+    def run_gen(self, profile: pathlib.Path, out_dir: pathlib.Path, *flags: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(GEN), str(profile), "--out-dir", str(out_dir)],
+            [sys.executable, str(GEN), str(profile), "--out-dir", str(out_dir), *flags],
             capture_output=True,
             text=True,
             check=False,
@@ -31,16 +31,30 @@ class GenCordisBuildTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             plan = json.loads((out / "build-plan.json").read_text(encoding="utf-8"))
             self.assertTrue(plan["build_chromium"])
-            self.assertTrue(plan["gn_args"]["electron_cordis_mode"])
-            self.assertTrue(plan["gn_args"]["enable_pdf_viewer"])
-            self.assertTrue(plan["gn_args"]["enable_pdf"])
-            self.assertTrue(plan["gn_args"]["enable_electron_extensions"])
-            self.assertFalse(plan["gn_args"]["enable_prompt_api"])
-            self.assertFalse(plan["gn_args"]["enable_builtin_spellchecker"])
+            self.assertFalse(plan["gn_args"]["electron_cordis_mode"])
+            self.assertEqual(set(plan["gn_args"]), {
+                "electron_cordis_mode", "electron_cordis_profile", "electron_cordis_plugins",
+            })
             self.assertIn("@dsh/inkstone-harness", plan["bundled_plugins"])
             self.assertIn("@dsh/plugin-science-pack", plan["on_demand_plugins"])
-            self.assertTrue((out / "cordis.args.gn").is_file())
+            self.assertIn("@dsh/cap-desktop-capture", plan["on_demand_plugins"])
+            self.assertNotIn("cap-desktop-capture", plan["cargo_features"])
+            self.assertIn("cap-clipboard", plan["cargo_features"])
+            self.assertNotIn("bridge-mcp", plan["cargo_features"])
+            self.assertNotIn("import(", (out / "cordis.args.gn").read_text(encoding="utf-8"))
             self.assertTrue((out / "load-plan.json").is_file())
+
+    def test_inkstone_electron_lite_retains_pdf_viewer_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td)
+            res = self.run_gen(PROFILES / "inkstone-desktop.cordis.json", out, "--electron-lite")
+            self.assertEqual(res.returncode, 0, res.stderr)
+            args = json.loads((out / "build-plan.json").read_text(encoding="utf-8"))["gn_args"]
+            self.assertTrue(args["electron_cordis_mode"])
+            self.assertTrue(args["enable_pdf_viewer"])
+            self.assertTrue(args["enable_electron_extensions"])
+            self.assertFalse(args["enable_prompt_api"])
+            self.assertFalse(args["enable_builtin_spellchecker"])
 
     def test_inkstone_headless_skips_chromium_completely(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -49,18 +63,20 @@ class GenCordisBuildTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             plan = json.loads((out / "build-plan.json").read_text(encoding="utf-8"))
             self.assertFalse(plan["build_chromium"])
+            self.assertEqual(plan["cargo_features"], ["cap-os-shell", "cap-safe-storage"])
             self.assertFalse((out / "cordis.args.gn").exists())
             self.assertEqual(plan["gn_args"]["electron_cordis_plugins"], [])
 
-    def test_dsh_studio_profile_builds_cleanly_without_pdf_or_extensions(self) -> None:
+    def test_dsh_studio_electron_lite_disables_pdf_and_extensions(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             out = pathlib.Path(td)
-            res = self.run_gen(PROFILES / "dsh-studio.cordis.json", out)
+            res = self.run_gen(PROFILES / "dsh-studio.cordis.json", out, "--electron-lite")
             self.assertEqual(res.returncode, 0, res.stderr)
             plan = json.loads((out / "build-plan.json").read_text(encoding="utf-8"))
             self.assertTrue(plan["build_chromium"])
             self.assertFalse(plan["gn_args"]["enable_pdf_viewer"])
-            self.assertFalse(plan["gn_args"]["enable_pdf"])
+            self.assertNotIn("enable_pdf", plan["gn_args"])
+            self.assertNotIn("enable_printing", plan["gn_args"])
             self.assertFalse(plan["gn_args"]["enable_electron_extensions"])
 
     def test_fail_closed_on_unknown_rust_plugin(self) -> None:

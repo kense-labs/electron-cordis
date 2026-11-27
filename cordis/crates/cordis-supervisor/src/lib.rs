@@ -7,7 +7,10 @@
 //!   `electron-cordis-daemon`, active KRun sessions, and the disk-backed `PrivateVolumeWriterSeal`
 //!   remain continuously alive and uninterrupted.
 
+use std::future::{Future, ready};
+use std::io;
 use std::path::PathBuf;
+use std::pin::pin;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,6 +59,13 @@ pub struct SupervisedDaemon {
 
 impl SupervisedDaemon {
     pub fn spawn(cfg: &SupervisorConfig) -> Result<Self, String> {
+        Self::spawn_with_seal(cfg, None)
+    }
+
+    fn spawn_with_seal(
+        cfg: &SupervisorConfig,
+        seal: Option<&PrivateVolumeWriterSeal>,
+    ) -> Result<Self, String> {
         let mut cmd = Command::new(&cfg.daemon_bin);
         if let Some(plan) = &cfg.load_plan {
             cmd.arg("--load-plan").arg(plan);
@@ -63,9 +73,15 @@ impl SupervisedDaemon {
         for arg in &cfg.extra_daemon_args {
             cmd.arg(arg);
         }
+        if let Some(seal) = seal {
+            seal.configure_daemon(&mut cmd);
+        }
+        #[cfg(windows)]
+        cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("spawn daemon {}: {e}", cfg.daemon_bin.display()))?;
@@ -109,11 +125,12 @@ impl SupervisedDaemon {
             .await
             .map_err(|e| format!("flush daemon stdin: {e}"))?;
 
-        let resp_line = tokio::time::timeout(Duration::from_secs(10), self.stdout_lines.next_line())
-            .await
-            .map_err(|_| format!("timeout waiting for daemon response to {method}"))?
-            .map_err(|e| format!("read daemon stdout: {e}"))?
-            .ok_or_else(|| format!("daemon EOF while awaiting {method}"))?;
+        let resp_line =
+            tokio::time::timeout(Duration::from_secs(10), self.stdout_lines.next_line())
+                .await
+                .map_err(|_| format!("timeout waiting for daemon response to {method}"))?
+                .map_err(|e| format!("read daemon stdout: {e}"))?
+                .ok_or_else(|| format!("daemon EOF while awaiting {method}"))?;
 
         let parsed: Value =
             serde_json::from_str(&resp_line).map_err(|e| format!("parse daemon json: {e}"))?;
@@ -140,7 +157,16 @@ impl SupervisedDaemon {
 /// 3. If `ui_bin` is `Some`, spawns UI and automatically restarts it on non-zero exit up to
 ///    `max_ui_restarts` while verifying daemon PID and single-writer seal stay uninterrupted.
 pub async fn run_supervised(cfg: &SupervisorConfig) -> Result<SupervisorReport, String> {
-    let seal = match &cfg.private_volume_dir {
+    run_supervised_until(cfg, tokio::signal::ctrl_c()).await
+}
+
+/// Runs the same lifecycle with an explicit stop signal supplied by the launcher.
+pub async fn run_supervised_until(
+    cfg: &SupervisorConfig,
+    stop: impl Future<Output = io::Result<()>>,
+) -> Result<SupervisorReport, String> {
+    let mut stop = pin!(stop);
+    let mut seal = match &cfg.private_volume_dir {
         Some(dir) => Some(
             PrivateVolumeWriterSeal::acquire(dir, 1)
                 .map_err(|e| format!("acquire private volume seal: {e}"))?,
@@ -148,30 +174,62 @@ pub async fn run_supervised(cfg: &SupervisorConfig) -> Result<SupervisorReport, 
         None => None,
     };
 
-    let mut daemon = SupervisedDaemon::spawn(cfg)?;
+    let mut daemon = SupervisedDaemon::spawn_with_seal(cfg, seal.as_ref())?;
+    if let Some(seal) = &mut seal {
+        seal.preserve_on_failure();
+    }
     let daemon_pid = daemon.pid();
     let health_before = daemon.rpc("cordis.health", json!({})).await?;
 
     let ui_launches = Arc::new(AtomicUsize::new(0));
     let mut ui_crash_restarts = 0usize;
     let mut seal_preserved = true;
+    let mut ui_failure = None;
 
     if let Some(ui_bin) = &cfg.ui_bin {
         loop {
+            // A launcher that closed during daemon startup should never open a window.
+            let stop_requested = tokio::select! {
+                biased;
+                result = &mut stop => Some(result),
+                () = ready(()) => None,
+            };
+            if let Some(result) = stop_requested {
+                ui_failure = result.err().map(|e| format!("wait for supervisor stop: {e}"));
+                break;
+            }
             let attempt = ui_launches.fetch_add(1, Ordering::SeqCst) + 1;
             let mut ui_cmd = Command::new(ui_bin);
+            #[cfg(windows)]
+            ui_cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
             ui_cmd
                 .args(&cfg.ui_args)
                 .env("ELECTRON_CORDIS_UI_ATTEMPT", attempt.to_string())
                 .env("ELECTRON_CORDIS_DAEMON_PID", daemon_pid.to_string())
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .stdout(Stdio::from(std::io::stderr()))
+                .stderr(Stdio::inherit())
+                .kill_on_drop(true);
 
-            let status = ui_cmd
-                .status()
-                .await
-                .map_err(|e| format!("spawn UI {}: {e}", ui_bin.display()))?;
+            let mut ui = match ui_cmd.spawn() {
+                Ok(ui) => ui,
+                Err(error) => {
+                    ui_failure = Some(format!("spawn UI {}: {error}", ui_bin.display()));
+                    break;
+                }
+            };
+            let status = tokio::select! {
+                status = ui.wait() => status.map_err(|e| format!("wait for UI: {e}"))?,
+                status = daemon.child.wait() => {
+                    let status = status.map_err(|e| format!("wait for daemon: {e}"))?;
+                    return Err(format!("Cordis daemon exited while the UI was running: {status}"));
+                }
+                stopped = &mut stop => {
+                    ui_failure = stopped.err().map(|e| format!("wait for supervisor stop: {e}"));
+                    ui.kill().await.map_err(|e| format!("stop UI: {e}"))?;
+                    break;
+                }
+            };
 
             // Verify private volume writer seal stayed intact on disk across UI exit/crash!
             if let Some(s) = &seal {
@@ -184,6 +242,7 @@ pub async fn run_supervised(cfg: &SupervisorConfig) -> Result<SupervisorReport, 
                 break;
             }
             if ui_crash_restarts >= cfg.max_ui_restarts {
+                ui_failure = Some(format!("Electron UI exited unsuccessfully: {status}"));
                 break;
             }
             ui_crash_restarts += 1;
@@ -194,7 +253,13 @@ pub async fn run_supervised(cfg: &SupervisorConfig) -> Result<SupervisorReport, 
     let daemon_still_same_pid = daemon.pid() == daemon_pid;
     let clean_shutdown = daemon.shutdown().await?;
 
-    drop(seal);
+    if let Some(seal) = seal {
+        seal.release();
+    }
+
+    if let Some(error) = ui_failure {
+        return Err(error);
+    }
 
     Ok(SupervisorReport {
         headless: cfg.ui_bin.is_none(),

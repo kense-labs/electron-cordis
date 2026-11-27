@@ -9,8 +9,9 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-use cordis_core::{Context, Event, FiberHandle, ServiceRealm};
+use cordis_core::{Context, Event, FiberHandle, FiberState, ServiceRealm};
 use cordis_loader::outcome::EntryOutcome;
+use cordis_loader::plan::InjectEntry;
 use cordis_loader::{LoadPlanBuilder, PluginEntry, PluginResolver};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -215,7 +216,10 @@ impl RealmTopology {
             .with_service_realms([
                 (service_names::SAFE_STORAGE, host_secrets.clone()),
                 (service_names::ASKPASS_VAULT, host_secrets.clone()),
-                (service_names::PLANE_B_TOOL_CATALOG, shared_plane_b_catalog.clone()),
+                (
+                    service_names::PLANE_B_TOOL_CATALOG,
+                    shared_plane_b_catalog.clone(),
+                ),
             ])
             .map_err(|e| KernelError::RealmWiring(e.to_string()))?;
 
@@ -232,7 +236,10 @@ impl RealmTopology {
             .with_isolated_service(service_names::ASKPASS_VAULT)
             .with_service_realms([
                 (service_names::PRIVATE_VOLUME, core_private_volume.clone()),
-                (service_names::PLANE_B_TOOL_CATALOG, shared_plane_b_catalog.clone()),
+                (
+                    service_names::PLANE_B_TOOL_CATALOG,
+                    shared_plane_b_catalog.clone(),
+                ),
             ])
             .map_err(|e| KernelError::RealmWiring(e.to_string()))?;
 
@@ -243,9 +250,10 @@ impl RealmTopology {
             .with_isolated_service(service_names::APP_DB)
             .with_isolated_service(service_names::PRIVATE_VOLUME)
             .with_isolated_service(service_names::KRUN_RUNTIME)
-            .with_service_realms([
-                (service_names::PLANE_B_TOOL_CATALOG, shared_plane_b_catalog.clone()),
-            ])
+            .with_service_realms([(
+                service_names::PLANE_B_TOOL_CATALOG,
+                shared_plane_b_catalog.clone(),
+            )])
             .map_err(|e| KernelError::RealmWiring(e.to_string()))?;
 
         Ok(Self {
@@ -457,10 +465,10 @@ impl RealmTopology {
     ) -> Result<Vec<(String, FiberHandle)>, KernelError> {
         let ctx = self.context_for_realm(realm_name)?;
         let mut builder = LoadPlanBuilder::new();
-        let mut id_by_entry = Vec::new();
+        let mut has_entries = false;
 
         for entry in &manifest.entries {
-            if entry.realm != realm_name {
+            if entry.realm != realm_name || entry.delivery != PluginDelivery::Bundled {
                 continue;
             }
             if let Some(filter) = allowed_ids {
@@ -471,13 +479,19 @@ impl RealmTopology {
             let mut pe = PluginEntry::new(entry.config.clone());
             pe.key = Some(entry.id.clone());
             pe.name = Some(entry.id.clone());
-            let eid = builder
+            pe.inject = entry
+                .inject
+                .iter()
+                .cloned()
+                .map(InjectEntry::Required)
+                .collect();
+            builder
                 .add_plugin(None, pe)
                 .map_err(|e| KernelError::InvalidLoadPlan(format!("loader builder: {e}")))?;
-            id_by_entry.push((eid, entry.id.clone()));
+            has_entries = true;
         }
 
-        if id_by_entry.is_empty() {
+        if !has_entries {
             return Ok(Vec::new());
         }
 
@@ -530,6 +544,14 @@ pub struct FiberRoster {
 impl FiberRoster {
     pub fn record(&mut self, id: impl Into<String>, handle: FiberHandle) {
         self.entries.push((id.into(), handle));
+    }
+
+    pub fn active_plugin_ids(&self) -> Vec<&str> {
+        self.entries
+            .iter()
+            .filter(|(_, handle)| handle.state() == FiberState::Active)
+            .map(|(id, _)| id.as_str())
+            .collect()
     }
 
     /// Disposes all delivered fibers in reverse spawn order, attempting every entry

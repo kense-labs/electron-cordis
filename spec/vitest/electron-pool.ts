@@ -20,6 +20,8 @@ export interface ElectronPoolOptions {
   specDir: string;
   /** Extra command line switches for every worker (e.g. --no-sandbox in CI containers). */
   electronArgs?: string[];
+  /** Stop a running file if its Electron worker stops sending IPC for this long. */
+  workerIdleTimeoutMs?: number;
   /**
    * A wrapper to launch Electron through, e.g. ['python3', 'dbus_mock.py'].
    * The Electron path and its arguments are appended.
@@ -64,6 +66,7 @@ class ElectronPoolWorker implements PoolWorker {
   cacheFs = true;
 
   private child: childProcess.ChildProcess | undefined;
+  private idleTimer: NodeJS.Timeout | undefined;
   private stopped = false;
   private readonly errors = new EventEmitter();
   private readonly env: Partial<NodeJS.ProcessEnv>;
@@ -90,13 +93,40 @@ class ElectronPoolWorker implements PoolWorker {
   }
 
   send(message: WorkerRequest): void {
-    this.proc.send(serialize(message), (error) => {
+    const child = this.proc;
+    const idleTimeout = this.electron.workerIdleTimeoutMs;
+    if (message.type === 'stop') {
+      this.clearIdleTimer();
+    } else if (idleTimeout && (message.type === 'run' || message.type === 'collect')) {
+      this.clearIdleTimer();
+      const files = message.context.files.map((file) => path.relative(this.electron.specDir, file.filepath));
+      this.idleTimer = setTimeout(() => {
+        this.idleTimer = undefined;
+        this.stderr.write(`[cordis-parity] Electron worker sent no IPC for ${idleTimeout}ms while running ${files.join(', ')}\n`);
+        this.killGroup(child);
+      }, idleTimeout).unref();
+    }
+    child.send(serialize(message), (error) => {
       if (error) this.emitError(error);
     });
   }
 
   deserialize(data: unknown): unknown {
-    return deserialize(data);
+    const message = deserialize(data);
+    if (this.idleTimer) {
+      if (message && typeof message === 'object' && '__vitest_worker_response__' in message &&
+          'type' in message && message.type === 'testfileFinished') {
+        this.clearIdleTimer();
+      } else {
+        this.idleTimer.refresh();
+      }
+    }
+    return message;
+  }
+
+  private clearIdleTimer(): void {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
   }
 
   async start(): Promise<void> {
@@ -143,7 +173,10 @@ class ElectronPoolWorker implements PoolWorker {
     this.child = child;
     child.on('error', this.emitError);
     const exited = new Promise<void>((resolve) => {
-      child.once('exit', () => resolve());
+      child.once('exit', () => {
+        this.clearIdleTimer();
+        resolve();
+      });
       // A child that failed to spawn never emits 'exit'.
       child.once('error', () => child.pid === undefined && resolve());
     });
@@ -204,6 +237,7 @@ class ElectronPoolWorker implements PoolWorker {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.clearIdleTimer();
     const child = this.child;
     if (!child) return;
     this.child = undefined;

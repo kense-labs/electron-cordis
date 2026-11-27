@@ -11,8 +11,8 @@ note: method defined here
    |        ^^^^^^^^^^^^
 help: provide the argument
    |
-20 |     let _ = r.into_outcome(/* OutcomeToken */);
-   |                            ++++++++++++++++++
+20 |     let _ = r.into_outcome(/* effect::sealed::OutcomeToken */);
+   |                            ++++++++++++++++++++++++++++++++++
 
 error[E0061]: this method takes 1 argument but 0 arguments were supplied
   --> tests/ui-effect/fail/cleanup_result_outcome_missing_token.rs:24:39
@@ -27,5 +27,5 @@ note: method defined here
    |        ^^^^^^^^^^^^
 help: provide the argument
    |
-24 |     let _ = Err::<(), Forged>(Forged).into_outcome(/* OutcomeToken */);
-   |                                                    ++++++++++++++++++
+24 |     let _ = Err::<(), Forged>(Forged).into_outcome(/* effect::sealed::OutcomeToken */);
+   |                                                    ++++++++++++++++++++++++++++++++++

@@ -11,6 +11,7 @@
 #include "base/command_line.h"
 #include "base/containers/span.h"
 #include "base/strings/strcat.h"
+#include "electron/buildflags/buildflags.h"
 #include "gin/converter.h"
 #include "shell/common/gin_helper/dictionary.h"
 #include "shell/common/gin_helper/node_event_emitter.h"
@@ -45,7 +46,9 @@ constexpr auto kModules = std::to_array<ModuleEntry>({
     {"crashReporter", "electron_renderer_crash_reporter", nullptr, true},
     {"ipcRenderer", "electron_renderer_ipc", "ipcRenderer", false},
     {"nativeImage", "electron_common_native_image", "nativeImage", false},
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
     {"sharedTexture", "electron_common_shared_texture", nullptr, true},
+#endif
     {"webFrame", "electron_renderer_web_frame", "mainFrame", true},
     {"webUtils", "electron_renderer_web_utils", nullptr, true},
 });

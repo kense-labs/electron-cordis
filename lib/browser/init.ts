@@ -76,7 +76,7 @@ app.setAppPath(appPackage.path);
 // Load protocol module to ensure it is populated on app ready
 require('@electron/internal/browser/api/protocol');
 
-// Load service-worker-main module to ensure it is populated on app ready
+// Initialize the IPC prototype used by session.serviceWorkers, including in Lite builds.
 require('@electron/internal/browser/api/service-worker-main');
 
 // Load web-contents module to ensure it is populated on app ready

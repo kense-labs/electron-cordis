@@ -13,6 +13,10 @@
 //!   - `llm-gateway` (`--llm-gateway-socket`, `/run/krun/llm-gateway.sock`)
 //! - `ShadowFiber` live bidirectional host bridge (`--shadow-socket` <-> `@dsh/cordis-bridge`)
 
+mod builtins;
+#[cfg(windows)]
+mod windows_pipe;
+
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -21,44 +25,43 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cordis_core::event::{Next, around, mapper_sync};
-use cordis_core::{Context, PreparedPlugin, Routing};
-use electron_cordis_cap_clipboard::{
-    ClipboardConfig, ClipboardPlugin, ClipboardService, PLUGIN_ID as CLIPBOARD_PLUGIN_ID,
-};
-use electron_cordis_cap_desktop_ui::{
-    NOTIFICATION_PLUGIN_ID, NotificationConfig, NotificationPlugin, NotificationService,
-    OS_INTEGRATION_PLUGIN_ID, OsIntegrationConfig, OsIntegrationPlugin, OsIntegrationService,
-    TRAY_PLUGIN_ID, TrayMenuConfig, TrayMenuPlugin, TrayMenuService,
-};
-use electron_cordis_cap_dialog::{
-    DialogConfig, DialogPlugin, DialogService, PLUGIN_ID as DIALOG_PLUGIN_ID,
-};
-use electron_cordis_cap_os_shell::{
-    OsShellConfig, OsShellPlugin, OsShellService, PLUGIN_ID as OS_SHELL_PLUGIN_ID,
-};
-use electron_cordis_cap_platform::{
-    CAPTURE_PLUGIN_ID, DesktopCaptureConfig, DesktopCapturePlugin, DesktopCaptureService,
-    INSTALLER_PLUGIN_ID, NODE_HOST_PLUGIN_ID, NodeHostConfig, PluginInstallerConfig,
-    PluginInstallerPlugin, PluginInstallerService, RuntimeNodeHostPlugin, UPDATER_PLUGIN_ID,
-    UpdaterConfig, UpdaterPlugin, UpdaterService,
-};
-use electron_cordis_cap_safe_storage::{
-    PLUGIN_ID as SAFE_STORAGE_PLUGIN_ID, SafeStorageConfig, SafeStoragePlugin, SafeStorageService,
-};
+use cordis_core::event::{around, mapper_sync, Next};
+use cordis_core::{Context, Routing};
+#[cfg(feature = "cap-clipboard")]
+use electron_cordis_cap_clipboard::{ClipboardService, PLUGIN_ID as CLIPBOARD_PLUGIN_ID};
+#[cfg(feature = "cap-notification")]
+use electron_cordis_cap_desktop_ui::NotificationService;
+#[cfg(feature = "cap-os-integration")]
+use electron_cordis_cap_desktop_ui::OsIntegrationService;
+#[cfg(feature = "cap-tray-menu")]
+use electron_cordis_cap_desktop_ui::TrayMenuService;
+#[cfg(feature = "cap-dialog")]
+use electron_cordis_cap_dialog::DialogService;
+#[cfg(feature = "cap-os-shell")]
+use electron_cordis_cap_os_shell::OsShellService;
+#[cfg(feature = "cap-desktop-capture")]
+use electron_cordis_cap_platform::DesktopCaptureService;
+#[cfg(feature = "plugin-installer")]
+use electron_cordis_cap_platform::PluginInstallerService;
+#[cfg(feature = "cap-updater")]
+use electron_cordis_cap_platform::UpdaterService;
+#[cfg(feature = "cap-safe-storage")]
+use electron_cordis_cap_safe_storage::SafeStorageService;
 use electron_cordis_kernel::{
     BootPhase, FiberRoster, LlmRequestEnvelope, LlmRequestEvent, LlmResponseEnvelope,
-    LoadPlanManifest, RealmTopology, RegisteredTool, ToolCallEnvelope, ToolCallResult,
-    ToolCatalog, ToolInvokeEvent, TrajectoryRecord, TwoPhaseBootState,
+    LoadPlanManifest, RealmTopology, RegisteredTool, ToolCallEnvelope, ToolCallResult, ToolCatalog,
+    ToolInvokeEvent, TrajectoryRecord, TwoPhaseBootState,
 };
 use electron_cordis_wire::{
-    AcpPromptRequest, AcpSessionCreate, HarnessProjection, INKSTONE_NATIVE_CONTRACT_PROTOCOL,
-    INKSTONE_NATIVE_CONTRACT_SHA256, INKSTONE_NATIVE_MAX_FRAME_BYTES, McpCallToolResult,
-    McpContentBlock, McpToolDescriptor, NativeContractToolCall, ShadowFiberMessage, WIRE_SCHEMA,
+    AcpPromptRequest, AcpSessionCreate, HarnessProjection, McpCallToolResult, McpContentBlock,
+    McpToolDescriptor, NativeContractToolCall, ShadowFiberMessage,
+    INKSTONE_NATIVE_CONTRACT_PROTOCOL, INKSTONE_NATIVE_CONTRACT_SHA256,
+    INKSTONE_NATIVE_MAX_FRAME_BYTES, WIRE_SCHEMA,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use serde_json::{json, Value};
+#[cfg(any(unix, windows))]
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Deserialize)]
@@ -121,8 +124,7 @@ struct AcpSessionRecord {
 }
 
 pub type BoxedToolFuture = Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>;
-pub type RemoteToolExecutor =
-    Arc<dyn Fn(String, String, Value) -> BoxedToolFuture + Send + Sync>;
+pub type RemoteToolExecutor = Arc<dyn Fn(String, String, Value) -> BoxedToolFuture + Send + Sync>;
 
 struct LiveShadowPeer {
     outbound: mpsc::UnboundedSender<ShadowFiberMessage>,
@@ -132,17 +134,11 @@ struct LiveShadowPeer {
 
 impl LiveShadowPeer {
     fn new(outbound: mpsc::UnboundedSender<ShadowFiberMessage>) -> Arc<Self> {
-        Arc::new(Self {
-            outbound,
-            pending: Mutex::new(BTreeMap::new()),
-            seq: AtomicU64::new(1),
-        })
+        Arc::new(Self { outbound, pending: Mutex::new(BTreeMap::new()), seq: AtomicU64::new(1) })
     }
 
     fn send(&self, msg: ShadowFiberMessage) -> Result<(), String> {
-        self.outbound
-            .send(msg)
-            .map_err(|_| "shadow peer disconnected".to_string())
+        self.outbound.send(msg).map_err(|_| "shadow peer disconnected".to_string())
     }
 
     async fn invoke_remote_tool(
@@ -153,10 +149,7 @@ impl LiveShadowPeer {
     ) -> Result<Value, String> {
         let req_id = format!("host-call-{}", self.seq.fetch_add(1, Ordering::Relaxed));
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .expect("shadow pending lock")
-            .insert(req_id.clone(), tx);
+        self.pending.lock().expect("shadow pending lock").insert(req_id.clone(), tx);
 
         if let Err(e) = self.send(ShadowFiberMessage::ToolInvoke {
             request_id: req_id.clone(),
@@ -185,12 +178,7 @@ impl LiveShadowPeer {
         result: Option<Value>,
         error: Option<String>,
     ) {
-        if let Some(tx) = self
-            .pending
-            .lock()
-            .expect("shadow pending lock")
-            .remove(request_id)
-        {
+        if let Some(tx) = self.pending.lock().expect("shadow pending lock").remove(request_id) {
             let outcome = if ok {
                 Ok(result.unwrap_or(Value::Null))
             } else {
@@ -242,164 +230,9 @@ impl DaemonState {
     /// into their designated `ServiceRealm`s, and installs BOTH chokepoint pipelines
     /// (Tool Gateway `Around` + LLM Gateway `Mapper`/`Around`).
     pub async fn start(plan: Option<LoadPlanManifest>) -> Result<Self, String> {
-        if let Some(plan) = &plan {
-            if plan.entries.iter().any(|entry| {
-                entry.id == "@dsh/krun-runtime"
-                    || entry.inject.iter().any(|service| service == "krun.runtime")
-            }) {
-                return Err("load plan requires an embedded KRun runtime, which is unavailable; regenerate it with a standalone profile".into());
-            }
-            if plan.entries.iter().any(|entry| {
-                entry.id == NODE_HOST_PLUGIN_ID
-                    && !matches!(entry.isolation.as_str(), "in-process" | "trusted-host")
-            }) {
-                return Err("runtime-node-host requires a trusted local process; configure external isolation separately".into());
-            }
-        }
         let root = Context::new();
         let topology = RealmTopology::new(root).map_err(|e| e.to_string())?;
         let tools = ToolCatalog::default();
-        let mut roster = FiberRoster::default();
-
-        let should_load = |id: &str| match &plan {
-            Some(p) => p.has_plugin(id),
-            None => true,
-        };
-
-        if should_load(NODE_HOST_PLUGIN_ID) {
-            let handle = topology
-                .core
-                .spawn(PreparedPlugin::from_input(
-                    RuntimeNodeHostPlugin,
-                    NodeHostConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {NODE_HOST_PLUGIN_ID}: {e}"))?;
-            roster.record(NODE_HOST_PLUGIN_ID, handle);
-        }
-
-        // L2 HostRealm: M3 Batch 1 Class-A Rust capability plugins
-        if should_load(SAFE_STORAGE_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    SafeStoragePlugin,
-                    SafeStorageConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {SAFE_STORAGE_PLUGIN_ID}: {e}"))?;
-            roster.record(SAFE_STORAGE_PLUGIN_ID, handle);
-        }
-
-        if should_load(CLIPBOARD_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    ClipboardPlugin::new(Some(tools.clone())),
-                    ClipboardConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {CLIPBOARD_PLUGIN_ID}: {e}"))?;
-            roster.record(CLIPBOARD_PLUGIN_ID, handle);
-        }
-
-        if should_load(DIALOG_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    DialogPlugin,
-                    DialogConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {DIALOG_PLUGIN_ID}: {e}"))?;
-            roster.record(DIALOG_PLUGIN_ID, handle);
-        }
-
-        if should_load(OS_SHELL_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    OsShellPlugin,
-                    OsShellConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {OS_SHELL_PLUGIN_ID}: {e}"))?;
-            roster.record(OS_SHELL_PLUGIN_ID, handle);
-        }
-
-        // L2 HostRealm: M3 Batch 2 Desktop UI plugins
-        if should_load(TRAY_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    TrayMenuPlugin,
-                    TrayMenuConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {TRAY_PLUGIN_ID}: {e}"))?;
-            roster.record(TRAY_PLUGIN_ID, handle);
-        }
-
-        if should_load(NOTIFICATION_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    NotificationPlugin,
-                    NotificationConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {NOTIFICATION_PLUGIN_ID}: {e}"))?;
-            roster.record(NOTIFICATION_PLUGIN_ID, handle);
-        }
-
-        if should_load(OS_INTEGRATION_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    OsIntegrationPlugin,
-                    OsIntegrationConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {OS_INTEGRATION_PLUGIN_ID}: {e}"))?;
-            roster.record(OS_INTEGRATION_PLUGIN_ID, handle);
-        }
-
-        // L2 HostRealm: M3 Batch 3 Platform & Signed Installer plugins
-        if should_load(CAPTURE_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    DesktopCapturePlugin,
-                    DesktopCaptureConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {CAPTURE_PLUGIN_ID}: {e}"))?;
-            roster.record(CAPTURE_PLUGIN_ID, handle);
-        }
-
-        if should_load(UPDATER_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    UpdaterPlugin,
-                    UpdaterConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {UPDATER_PLUGIN_ID}: {e}"))?;
-            roster.record(UPDATER_PLUGIN_ID, handle);
-        }
-
-        if should_load(INSTALLER_PLUGIN_ID) {
-            let handle = topology
-                .host
-                .spawn(PreparedPlugin::from_input(
-                    PluginInstallerPlugin,
-                    PluginInstallerConfig::default(),
-                ))
-                .await
-                .map_err(|e| format!("spawn {INSTALLER_PLUGIN_ID}: {e}"))?;
-            roster.record(INSTALLER_PLUGIN_ID, handle);
-        }
 
         // Chokepoint 1: Tool Gateway `Around` approval & trajectory middleware on `ToolInvokeEvent`.
         let approval = Arc::new(Mutex::new(ApprovalPolicyState::default()));
@@ -431,10 +264,7 @@ impl DaemonState {
                                 ))
                             } else if policy.enforce_requires_approval
                                 && tool_meta.as_ref().is_some_and(|t| t.requires_approval)
-                                && !policy
-                                    .approved_tools
-                                    .iter()
-                                    .any(|t| t == &envelope.tool_name)
+                                && !policy.approved_tools.iter().any(|t| t == &envelope.tool_name)
                             {
                                 Some(format!(
                                     "APPROVAL_REQUIRED: tool `{}` requires explicit approval",
@@ -578,11 +408,7 @@ impl DaemonState {
                             session_id,
                             origin_plugin: "@dsh/llm-gateway".into(),
                             harness_id,
-                            kind: if resp.ok {
-                                "llm.completed".into()
-                            } else {
-                                "llm.error".into()
-                            },
+                            kind: if resp.ok { "llm.completed".into() } else { "llm.error".into() },
                             payload: json!({
                                 "model": model,
                                 "prompt_tokens": resp.prompt_tokens,
@@ -596,6 +422,8 @@ impl DaemonState {
                 },
             ))
             .map_err(|e| format!("install llm around guardrail: {e}"))?;
+
+        let roster = builtins::load(&topology, &tools, plan.as_ref()).await?;
 
         Ok(Self {
             plan,
@@ -634,10 +462,7 @@ impl DaemonState {
     }
 
     pub fn attach_shadow_executor(&self, fiber_id: impl Into<String>, exec: RemoteToolExecutor) {
-        self.remote_executors
-            .lock()
-            .expect("remote executors lock")
-            .insert(fiber_id.into(), exec);
+        self.remote_executors.lock().expect("remote executors lock").insert(fiber_id.into(), exec);
     }
 
     pub async fn handle_shadow_message(&self, msg: ShadowFiberMessage) -> Result<Value, String> {
@@ -650,12 +475,7 @@ impl DaemonState {
         peer: Option<Arc<LiveShadowPeer>>,
     ) -> Result<Value, String> {
         match msg {
-            ShadowFiberMessage::Apply {
-                fiber_id,
-                generation,
-                plugin_id,
-                ..
-            } => {
+            ShadowFiberMessage::Apply { fiber_id, generation, plugin_id, .. } => {
                 let mut fibers = self.shadow_fibers.lock().expect("shadow fibers lock");
                 fibers.insert(
                     fiber_id.clone(),
@@ -671,11 +491,7 @@ impl DaemonState {
                 }
                 Ok(json!({ "applied": true, "fiber_id": fiber_id, "plugin_id": plugin_id }))
             }
-            ShadowFiberMessage::Update {
-                fiber_id,
-                generation,
-                ..
-            } => {
+            ShadowFiberMessage::Update { fiber_id, generation, .. } => {
                 let mut fibers = self.shadow_fibers.lock().expect("shadow fibers lock");
                 let Some(rec) = fibers.get_mut(&fiber_id) else {
                     return Err(format!("unknown shadow fiber `{fiber_id}`"));
@@ -683,11 +499,7 @@ impl DaemonState {
                 rec.generation = generation;
                 Ok(json!({ "updated": true, "fiber_id": fiber_id, "generation": generation }))
             }
-            ShadowFiberMessage::RegisterTool {
-                fiber_id,
-                generation,
-                tool,
-            } => {
+            ShadowFiberMessage::RegisterTool { fiber_id, generation, tool } => {
                 let reg = RegisteredTool {
                     name: tool.name.clone(),
                     version: tool.version,
@@ -698,12 +510,13 @@ impl DaemonState {
                 };
                 {
                     let mut fibers = self.shadow_fibers.lock().expect("shadow fibers lock");
-                    let entry = fibers.entry(fiber_id.clone()).or_insert_with(|| ShadowFiberRecord {
-                        fiber_id: fiber_id.clone(),
-                        generation,
-                        plugin_id: tool.origin_plugin.clone(),
-                        registered_tools: Vec::new(),
-                    });
+                    let entry =
+                        fibers.entry(fiber_id.clone()).or_insert_with(|| ShadowFiberRecord {
+                            fiber_id: fiber_id.clone(),
+                            generation,
+                            plugin_id: tool.origin_plugin.clone(),
+                            registered_tools: Vec::new(),
+                        });
                     if !entry.registered_tools.contains(&tool.name) {
                         entry.registered_tools.push(tool.name.clone());
                     }
@@ -715,16 +528,10 @@ impl DaemonState {
                 self.tools.register(reg);
                 Ok(json!({ "registered": tool.name, "fiber_id": fiber_id }))
             }
-            ShadowFiberMessage::Dispose {
-                fiber_id,
-                generation,
-            } => {
+            ShadowFiberMessage::Dispose { fiber_id, generation } => {
                 if peer.is_none() {
-                    if let Some(live_peer) = self
-                        .shadow_peers
-                        .lock()
-                        .expect("shadow peers lock")
-                        .remove(&fiber_id)
+                    if let Some(live_peer) =
+                        self.shadow_peers.lock().expect("shadow peers lock").remove(&fiber_id)
                     {
                         let _ = live_peer.send(ShadowFiberMessage::Dispose {
                             fiber_id: fiber_id.clone(),
@@ -732,21 +539,12 @@ impl DaemonState {
                         });
                     }
                 } else {
-                    self.shadow_peers
-                        .lock()
-                        .expect("shadow peers lock")
-                        .remove(&fiber_id);
+                    self.shadow_peers.lock().expect("shadow peers lock").remove(&fiber_id);
                 }
 
-                let removed_rec = self
-                    .shadow_fibers
-                    .lock()
-                    .expect("shadow fibers lock")
-                    .remove(&fiber_id);
-                self.remote_executors
-                    .lock()
-                    .expect("remote executors lock")
-                    .remove(&fiber_id);
+                let removed_rec =
+                    self.shadow_fibers.lock().expect("shadow fibers lock").remove(&fiber_id);
+                self.remote_executors.lock().expect("remote executors lock").remove(&fiber_id);
                 let removed_tools = if let Some(rec) = removed_rec {
                     self.tools.unregister_by_plugin(&rec.plugin_id)
                 } else {
@@ -758,17 +556,9 @@ impl DaemonState {
                     "removed_tools": removed_tools,
                 }))
             }
-            ShadowFiberMessage::ServiceInvoke {
-                request_id,
-                service,
-                method,
-                params,
-                ..
-            } => {
+            ShadowFiberMessage::ServiceInvoke { request_id, service, method, params, .. } => {
                 // Shadow Fiber runs in UntrustedPluginRealm: never allowed to call safeStorage!
-                let res = self
-                    .dispatch_compat("untrusted-plugin", &service, &method, &params)
-                    .await;
+                let res = self.dispatch_compat("untrusted-plugin", &service, &method, params).await;
                 let reply = match res {
                     Ok(value) => ShadowFiberMessage::RpcReply {
                         request_id: request_id.clone(),
@@ -788,12 +578,7 @@ impl DaemonState {
                 }
                 Ok(serde_json::to_value(reply).unwrap_or_else(|_| json!({})))
             }
-            ShadowFiberMessage::ToolInvoke {
-                request_id,
-                tool_name,
-                arguments,
-                ..
-            } => {
+            ShadowFiberMessage::ToolInvoke { request_id, tool_name, arguments, .. } => {
                 let res = self
                     .invoke_plane_b_tool(ToolCallEnvelope {
                         session_id: "shadow-rpc".into(),
@@ -813,12 +598,7 @@ impl DaemonState {
                 }
                 Ok(serde_json::to_value(reply).unwrap_or_else(|_| json!({})))
             }
-            ShadowFiberMessage::RpcReply {
-                request_id,
-                ok,
-                result,
-                error,
-            } => {
+            ShadowFiberMessage::RpcReply { request_id, ok, result, error } => {
                 if let Some(p) = peer {
                     p.deliver_reply(&request_id, ok, result, error);
                 }
@@ -863,10 +643,7 @@ impl DaemonState {
                             last_user = c.to_string();
                         }
                     }
-                    let reply = format!(
-                        "[llm-gateway:{}] echo({})",
-                        sanitized.model, last_user
-                    );
+                    let reply = format!("[llm-gateway:{}] echo({})", sanitized.model, last_user);
                     Ok(LlmResponseEnvelope {
                         ok: true,
                         model: sanitized.model,
@@ -897,25 +674,17 @@ impl DaemonState {
     /// Invokes any Plane B registered tool through the unified `ToolInvokeEvent` waterfall.
     pub async fn invoke_plane_b_tool(&self, envelope: ToolCallEnvelope) -> ToolCallResult {
         let catalog = self.tools.clone();
+        #[cfg(feature = "cap-clipboard")]
         let host_ctx = self.topology.host.clone();
         let shadow_map: Vec<(String, String, Vec<String>)> = self
             .shadow_fibers
             .lock()
             .expect("shadow fibers lock")
             .values()
-            .map(|r| {
-                (
-                    r.fiber_id.clone(),
-                    r.plugin_id.clone(),
-                    r.registered_tools.clone(),
-                )
-            })
+            .map(|r| (r.fiber_id.clone(), r.plugin_id.clone(), r.registered_tools.clone()))
             .collect();
-        let remote_executors: BTreeMap<String, RemoteToolExecutor> = self
-            .remote_executors
-            .lock()
-            .expect("remote executors lock")
-            .clone();
+        let remote_executors: BTreeMap<String, RemoteToolExecutor> =
+            self.remote_executors.lock().expect("remote executors lock").clone();
 
         let outcome = self
             .topology
@@ -925,6 +694,7 @@ impl DaemonState {
                 envelope,
                 move |env| {
                     let catalog = catalog.clone();
+                    #[cfg(feature = "cap-clipboard")]
                     let host_ctx = host_ctx.clone();
                     let shadow_map = shadow_map.clone();
                     let remote_executors = remote_executors.clone();
@@ -937,6 +707,7 @@ impl DaemonState {
                             });
                         };
 
+                        #[cfg(feature = "cap-clipboard")]
                         if meta.origin_plugin == CLIPBOARD_PLUGIN_ID {
                             match host_ctx.try_service::<ClipboardService>() {
                                 Ok(svc) => {
@@ -1013,101 +784,117 @@ impl DaemonState {
 
         match outcome {
             Ok(res) => res,
-            Err(e) => ToolCallResult {
-                ok: false,
-                output: Value::Null,
-                error: Some(e.to_string()),
-            },
+            Err(e) => ToolCallResult { ok: false, output: Value::Null, error: Some(e.to_string()) },
         }
     }
 
     async fn dispatch_compat(
         &self,
-        caller_realm: &str,
+        _caller_realm: &str,
         capability: &str,
-        method: &str,
-        args: &Value,
+        _method: &str,
+        _args: Value,
     ) -> Result<Value, (i32, String)> {
         let not_loaded = |name: &str| {
-            (
-                -32004,
-                format!("CAPABILITY_NOT_LOADED: `{name}` has no active provider in HostRealm"),
-            )
+            (-32004, format!("CAPABILITY_NOT_LOADED: `{name}` has no active provider in HostRealm"))
         };
         match capability {
+            #[cfg(feature = "cap-clipboard")]
             "clipboard" => self
                 .topology
                 .host
                 .try_service::<ClipboardService>()
                 .map_err(|_| not_loaded("clipboard"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .map_err(|e| (-32010, e.to_string())),
+            #[cfg(feature = "cap-safe-storage")]
             "safeStorage" => self
                 .topology
                 .host
                 .try_service::<SafeStorageService>()
                 .map_err(|_| not_loaded("safeStorage"))?
-                .call_compat(caller_realm, method, args)
+                .call_compat(_caller_realm, _method, &_args)
                 .map_err(|e| (-32003, e.to_string())),
+            #[cfg(feature = "cap-dialog")]
             "dialog" => self
                 .topology
                 .host
                 .try_service::<DialogService>()
                 .map_err(|_| not_loaded("dialog"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .await
                 .map_err(|e| (-32011, e.to_string())),
+            #[cfg(feature = "cap-os-shell")]
             "shell" => self
                 .topology
                 .host
                 .try_service::<OsShellService>()
                 .map_err(|_| not_loaded("shell"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .await
                 .map_err(|e| (-32012, e.to_string())),
+            #[cfg(feature = "cap-tray-menu")]
             "trayMenu" => self
                 .topology
                 .host
                 .try_service::<TrayMenuService>()
                 .map_err(|_| not_loaded("trayMenu"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .map_err(|e| (-32013, e.to_string())),
+            #[cfg(feature = "cap-notification")]
             "notification" => self
                 .topology
                 .host
                 .try_service::<NotificationService>()
                 .map_err(|_| not_loaded("notification"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .await
                 .map_err(|e| (-32014, e.to_string())),
+            #[cfg(feature = "cap-os-integration")]
             "osIntegration" => self
                 .topology
                 .host
                 .try_service::<OsIntegrationService>()
                 .map_err(|_| not_loaded("osIntegration"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .map_err(|e| (-32015, e.to_string())),
+            #[cfg(feature = "cap-desktop-capture")]
             "desktopCapture" => self
                 .topology
                 .host
                 .try_service::<DesktopCaptureService>()
                 .map_err(|_| not_loaded("desktopCapture"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .map_err(|e| (-32016, e.to_string())),
+            #[cfg(feature = "cap-updater")]
             "updater" => self
                 .topology
                 .host
                 .try_service::<UpdaterService>()
                 .map_err(|_| not_loaded("updater"))?
-                .call_compat(method, args)
+                .call_compat(_method, &_args)
                 .map_err(|e| (-32017, e.to_string())),
-            "pluginInstaller" => self
-                .topology
-                .host
-                .try_service::<PluginInstallerService>()
-                .map_err(|_| not_loaded("pluginInstaller"))?
-                .call_compat(method, args)
-                .map_err(|e| (-32018, e.to_string())),
+            #[cfg(feature = "plugin-installer")]
+            "pluginInstaller" => {
+                if matches!(_method, "verifyArchiveManifest" | "installArchive")
+                    && _caller_realm != "host"
+                {
+                    return Err((
+                        -32018,
+                        "PERMISSION_DENIED: only the host may manage signed plugin archives".into(),
+                    ));
+                }
+                let installer = self
+                    .topology
+                    .host
+                    .try_service::<PluginInstallerService>()
+                    .map_err(|_| not_loaded("pluginInstaller"))?;
+                let method = _method.to_owned();
+                tokio::task::spawn_blocking(move || installer.call_compat(&method, &_args))
+                    .await
+                    .map_err(|e| (-32018, e.to_string()))?
+                    .map_err(|e| (-32018, e.to_string()))
+            }
             other => Err(not_loaded(other)),
         }
     }
@@ -1142,6 +929,7 @@ impl DaemonState {
                         "ui_ready": boot.ui_ready,
                         "auth_generation": boot.auth_generation,
                         "bundled_plugins": bundled,
+                        "loaded_builtin_plugins": self.roster.lock().await.active_plugin_ids(),
                         "on_demand_plugins": on_demand,
                         "registered_tools": self.tools.list().len(),
                         "krun_backends": [],
@@ -1162,12 +950,15 @@ impl DaemonState {
                     (boot.phase, boot.ui_ready)
                 };
                 // Flush any startup intents queued prior to first paint in strict FIFO order.
+                #[cfg(feature = "cap-os-integration")]
                 let startup_intents = self
                     .topology
                     .host
                     .try_service::<OsIntegrationService>()
                     .map(|svc| svc.drain_startup_intents())
                     .unwrap_or_default();
+                #[cfg(not(feature = "cap-os-integration"))]
+                let startup_intents: [Value; 0] = [];
                 (
                     ok(json!({
                         "phase": phase,
@@ -1207,25 +998,17 @@ impl DaemonState {
             "cordis.policy.set" => {
                 let mut policy = self.approval.lock().expect("approval lock");
                 if let Some(arr) = req.params.get("denied_tools").and_then(Value::as_array) {
-                    policy.denied_tools = arr
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
+                    policy.denied_tools =
+                        arr.iter().filter_map(Value::as_str).map(String::from).collect();
                 }
-                if let Some(flag) = req
-                    .params
-                    .get("enforce_requires_approval")
-                    .and_then(Value::as_bool)
+                if let Some(flag) =
+                    req.params.get("enforce_requires_approval").and_then(Value::as_bool)
                 {
                     policy.enforce_requires_approval = flag;
                 }
                 if let Some(arr) = req.params.get("approved_tools").and_then(Value::as_array) {
-                    policy.approved_tools = arr
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
+                    policy.approved_tools =
+                        arr.iter().filter_map(Value::as_str).map(String::from).collect();
                 }
                 (
                     ok(json!({
@@ -1239,18 +1022,12 @@ impl DaemonState {
             "cordis.llm_policy.set" => {
                 let mut policy = self.llm_policy.lock().expect("llm policy lock");
                 if let Some(arr) = req.params.get("allowed_models").and_then(Value::as_array) {
-                    policy.allowed_models = arr
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
+                    policy.allowed_models =
+                        arr.iter().filter_map(Value::as_str).map(String::from).collect();
                 }
                 if let Some(arr) = req.params.get("blocked_models").and_then(Value::as_array) {
-                    policy.blocked_models = arr
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
+                    policy.blocked_models =
+                        arr.iter().filter_map(Value::as_str).map(String::from).collect();
                 }
                 (
                     ok(json!({
@@ -1260,10 +1037,9 @@ impl DaemonState {
                     false,
                 )
             }
-            "cordis.trajectory.list" => (
-                ok(json!({ "records": self.trajectory_snapshot() })),
-                false,
-            ),
+            "cordis.trajectory.list" => {
+                (ok(json!({ "records": self.trajectory_snapshot() })), false)
+            }
             "cordis.shadow.message" => {
                 match serde_json::from_value::<ShadowFiberMessage>(req.params) {
                     Ok(msg) => match self.handle_shadow_message(msg).await {
@@ -1305,11 +1081,7 @@ impl DaemonState {
                 let Some(name) = req.params.get("name").and_then(Value::as_str) else {
                     return (err(-32602, "missing MCP tool `name`".into()), false);
                 };
-                let arguments = req
-                    .params
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
+                let arguments = req.params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 let session_id = req
                     .params
                     .get("session_id")
@@ -1330,17 +1102,11 @@ impl DaemonState {
                     res.error.clone().unwrap_or_else(|| "tool failed".into())
                 };
                 let mcp_result = McpCallToolResult {
-                    content: vec![McpContentBlock {
-                        kind: "text".into(),
-                        text,
-                    }],
+                    content: vec![McpContentBlock { kind: "text".into(), text }],
                     is_error: !res.ok,
                     structured_content: if res.ok { Some(res.output) } else { None },
                 };
-                (
-                    ok(serde_json::to_value(mcp_result).unwrap_or_else(|_| json!({}))),
-                    false,
-                )
+                (ok(serde_json::to_value(mcp_result).unwrap_or_else(|_| json!({}))), false)
             }
             // Projection 2: Inkstone Host Native Contract (`bridge-inkstone-tools` / `/run/krun/host-tools.sock`)
             "inkstone.contract.info" => (
@@ -1371,24 +1137,17 @@ impl DaemonState {
                                 arguments: call.input,
                             })
                             .await;
-                        (
-                            ok(serde_json::to_value(res).unwrap_or_else(|_| json!({}))),
-                            false,
-                        )
+                        (ok(serde_json::to_value(res).unwrap_or_else(|_| json!({}))), false)
                     }
-                    Err(e) => (
-                        err(-32602, format!("invalid inkstone.tools.call params: {e}")),
-                        false,
-                    ),
+                    Err(e) => {
+                        (err(-32602, format!("invalid inkstone.tools.call params: {e}")), false)
+                    }
                 }
             }
             // Projection 3: ACP / dsh-sdk-protocol (`bridge-acp` / `/run/krun/dsh-rpc.sock`)
             "session/new" | "acp.session.new" => {
                 let create: AcpSessionCreate = serde_json::from_value(req.params)
-                    .unwrap_or(AcpSessionCreate {
-                        harness_id: "acp-client".into(),
-                        cwd: None,
-                    });
+                    .unwrap_or(AcpSessionCreate { harness_id: "acp-client".into(), cwd: None });
                 let sid = format!("acp-sess-{}", self.acp_seq.fetch_add(1, Ordering::Relaxed));
                 let rec = AcpSessionRecord {
                     session_id: sid.clone(),
@@ -1396,10 +1155,7 @@ impl DaemonState {
                     cwd: create.cwd,
                     cancelled: false,
                 };
-                self.acp_sessions
-                    .lock()
-                    .expect("acp sessions lock")
-                    .insert(sid.clone(), rec);
+                self.acp_sessions.lock().expect("acp sessions lock").insert(sid.clone(), rec);
                 (
                     ok(json!({
                         "sessionId": sid,
@@ -1465,12 +1221,7 @@ impl DaemonState {
                 let Some(sid) = req.params.get("session_id").and_then(Value::as_str) else {
                     return (err(-32602, "missing session_id".into()), false);
                 };
-                if let Some(s) = self
-                    .acp_sessions
-                    .lock()
-                    .expect("acp sessions lock")
-                    .get_mut(sid)
-                {
+                if let Some(s) = self.acp_sessions.lock().expect("acp sessions lock").get_mut(sid) {
                     s.cancelled = true;
                     (ok(json!({ "cancelled": true, "sessionId": sid })), false)
                 } else {
@@ -1482,36 +1233,18 @@ impl DaemonState {
                 match serde_json::from_value::<LlmRequestEnvelope>(req.params) {
                     Ok(llm_req) => {
                         let resp = self.invoke_llm_gateway(llm_req).await;
-                        (
-                            ok(serde_json::to_value(resp).unwrap_or_else(|_| json!({}))),
-                            false,
-                        )
+                        (ok(serde_json::to_value(resp).unwrap_or_else(|_| json!({}))), false)
                     }
                     Err(e) => (err(-32602, format!("invalid llm request: {e}")), false),
                 }
             }
             "cordis.compat.call" => {
-                let cap = req
-                    .params
-                    .get("capability")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown");
-                let method = req
-                    .params
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let args = req
-                    .params
-                    .get("args")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                let caller_realm = req
-                    .params
-                    .get("realm")
-                    .and_then(Value::as_str)
-                    .unwrap_or("host");
-                match self.dispatch_compat(caller_realm, cap, method, &args).await {
+                let cap = req.params.get("capability").and_then(Value::as_str).unwrap_or("unknown");
+                let method = req.params.get("method").and_then(Value::as_str).unwrap_or("");
+                let args = req.params.get("args").cloned().unwrap_or_else(|| json!({}));
+                let caller_realm =
+                    req.params.get("realm").and_then(Value::as_str).unwrap_or("host");
+                match self.dispatch_compat(caller_realm, cap, method, args).await {
                     Ok(value) => (ok(value), false),
                     Err((code, msg)) => (err(code, msg), false),
                 }
@@ -1541,7 +1274,8 @@ impl DaemonState {
                     std::mem::take(&mut *guard)
                 };
                 let teardown_errors = roster.drain_reverse().await;
-                let msgs: Vec<String> = teardown_errors.into_iter().map(|e| e.to_string()).collect();
+                let msgs: Vec<String> =
+                    teardown_errors.into_iter().map(|e| e.to_string()).collect();
                 (ok(json!({ "drained": true, "errors": msgs })), true)
             }
             other => (err(-32601, format!("unknown method: {other}")), false),
@@ -1558,42 +1292,55 @@ impl DaemonState {
         let state = Arc::clone(self);
         Ok(tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
-                let st = Arc::clone(&state);
-                tokio::spawn(async move {
-                    let (read_half, mut write_half) = stream.into_split();
-                    let mut lines = BufReader::new(read_half).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        let (resp, _) = match serde_json::from_str::<RpcRequest>(trimmed) {
-                            Ok(req) => st.dispatch(req).await,
-                            Err(e) => (
-                                RpcResponse {
-                                    jsonrpc: "2.0".to_string(),
-                                    id: Value::Null,
-                                    result: None,
-                                    error: Some(RpcError {
-                                        code: -32700,
-                                        message: format!("invalid json: {e}"),
-                                    }),
-                                },
-                                false,
-                            ),
-                        };
-                        if let Ok(encoded) = serde_json::to_string(&resp) {
-                            if write_half.write_all(encoded.as_bytes()).await.is_err()
-                                || write_half.write_all(b"\n").await.is_err()
-                                || write_half.flush().await.is_err()
-                            {
-                                break;
-                            }
-                        }
-                    }
-                });
+                tokio::spawn(Arc::clone(&state).serve_jsonrpc_connection(stream));
             }
         }))
+    }
+
+    #[cfg(windows)]
+    pub fn spawn_jsonrpc_named_pipe_listener(
+        self: &Arc<Self>,
+        path: std::path::PathBuf,
+    ) -> std::io::Result<tokio::task::JoinHandle<()>> {
+        let state = Arc::clone(self);
+        windows_pipe::listen(path, move |stream| {
+            Arc::clone(&state).serve_jsonrpc_connection(stream)
+        })
+    }
+
+    #[cfg(any(unix, windows))]
+    async fn serve_jsonrpc_connection(
+        self: Arc<Self>,
+        stream: impl AsyncRead + AsyncWrite + Unpin,
+    ) {
+        let mut lines = BufReader::new(stream).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let response = match serde_json::from_str::<RpcRequest>(trimmed) {
+                Ok(request) => self.dispatch(request).await.0,
+                Err(error) => RpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: Value::Null,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32700,
+                        message: format!("invalid json: {error}"),
+                    }),
+                },
+            };
+            if let Ok(encoded) = serde_json::to_string(&response) {
+                let writer = lines.get_mut().get_mut();
+                if writer.write_all(encoded.as_bytes()).await.is_err()
+                    || writer.write_all(b"\n").await.is_err()
+                    || writer.flush().await.is_err()
+                {
+                    break;
+                }
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -1606,69 +1353,94 @@ impl DaemonState {
         let state = Arc::clone(self);
         Ok(tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
-                let st = Arc::clone(&state);
-                tokio::spawn(async move {
-                    let (read_half, mut write_half) = stream.into_split();
-                    let (tx, mut rx) = mpsc::unbounded_channel::<ShadowFiberMessage>();
-                    let peer = LiveShadowPeer::new(tx);
-                    let owned_fibers = Arc::new(Mutex::new(Vec::<String>::new()));
-
-                    let writer = tokio::spawn(async move {
-                        while let Some(msg) = rx.recv().await {
-                            if let Ok(encoded) = serde_json::to_string(&msg) {
-                                if write_half.write_all(encoded.as_bytes()).await.is_err()
-                                    || write_half.write_all(b"\n").await.is_err()
-                                    || write_half.flush().await.is_err()
-                                {
-                                    break;
-                                }
-                            }
-                        }
-                    });
-
-                    let mut lines = BufReader::new(read_half).lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        let trimmed = line.trim();
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        if let Ok(msg) = serde_json::from_str::<ShadowFiberMessage>(trimmed) {
-                            if let ShadowFiberMessage::Apply { ref fiber_id, .. }
-                            | ShadowFiberMessage::RegisterTool { ref fiber_id, .. } = msg
-                            {
-                                let mut owned = owned_fibers.lock().expect("owned fibers lock");
-                                if !owned.contains(fiber_id) {
-                                    owned.push(fiber_id.clone());
-                                }
-                            }
-                            let st_task = Arc::clone(&st);
-                            let peer_task = Arc::clone(&peer);
-                            tokio::spawn(async move {
-                                let _ = st_task
-                                    .handle_shadow_message_from_peer(msg, Some(peer_task))
-                                    .await;
-                            });
-                        }
-                    }
-
-                    let leftovers: Vec<String> = {
-                        let mut guard = owned_fibers.lock().expect("owned fibers lock");
-                        std::mem::take(&mut *guard)
-                    };
-                    for fid in leftovers.into_iter().rev() {
-                        let _ = st
-                            .handle_shadow_message_from_peer(
-                                ShadowFiberMessage::Dispose {
-                                    fiber_id: fid,
-                                    generation: 0,
-                                },
-                                Some(Arc::clone(&peer)),
-                            )
-                            .await;
-                    }
-                    writer.abort();
-                });
+                let (reader, writer) = stream.into_split();
+                tokio::spawn(Arc::clone(&state).serve_shadow_connection(reader, writer));
             }
         }))
+    }
+
+    #[cfg(windows)]
+    pub fn spawn_shadow_named_pipe_listener(
+        self: &Arc<Self>,
+        path: std::path::PathBuf,
+    ) -> std::io::Result<tokio::task::JoinHandle<()>> {
+        let state = Arc::clone(self);
+        windows_pipe::listen(path, move |stream| {
+            let (reader, writer) = tokio::io::split(stream);
+            Arc::clone(&state).serve_shadow_connection(reader, writer)
+        })
+    }
+
+    #[cfg(any(unix, windows))]
+    async fn serve_shadow_connection(
+        self: Arc<Self>,
+        read_half: impl AsyncRead + Unpin + Send + 'static,
+        mut write_half: impl AsyncWrite + Unpin + Send + 'static,
+    ) {
+        let (tx, mut rx) = mpsc::unbounded_channel::<ShadowFiberMessage>();
+        let peer = LiveShadowPeer::new(tx);
+        let owned_fibers = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let writer = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if let Ok(encoded) = serde_json::to_string(&msg) {
+                    if write_half.write_all(encoded.as_bytes()).await.is_err()
+                        || write_half.write_all(b"\n").await.is_err()
+                        || write_half.flush().await.is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
+
+        let mut lines = BufReader::new(read_half).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Ok(msg) = serde_json::from_str::<ShadowFiberMessage>(trimmed) {
+                if let ShadowFiberMessage::Apply { ref fiber_id, .. }
+                | ShadowFiberMessage::RegisterTool { ref fiber_id, .. } = msg
+                {
+                    let mut owned = owned_fibers.lock().expect("owned fibers lock");
+                    if !owned.contains(fiber_id) {
+                        owned.push(fiber_id.clone());
+                    }
+                }
+                match msg {
+                    // Invocations may need replies from this same connection.
+                    ShadowFiberMessage::ServiceInvoke { .. }
+                    | ShadowFiberMessage::ToolInvoke { .. } => {
+                        let st = Arc::clone(&self);
+                        let peer = Arc::clone(&peer);
+                        tokio::spawn(async move {
+                            let _ = st.handle_shadow_message_from_peer(msg, Some(peer)).await;
+                        });
+                    }
+                    // Apply, register and dispose must follow wire order.
+                    _ => {
+                        let _ = self
+                            .handle_shadow_message_from_peer(msg, Some(Arc::clone(&peer)))
+                            .await;
+                    }
+                }
+            }
+        }
+
+        let leftovers: Vec<String> = {
+            let mut guard = owned_fibers.lock().expect("owned fibers lock");
+            std::mem::take(&mut *guard)
+        };
+        for fid in leftovers.into_iter().rev() {
+            let _ = self
+                .handle_shadow_message_from_peer(
+                    ShadowFiberMessage::Dispose { fiber_id: fid, generation: 0 },
+                    Some(Arc::clone(&peer)),
+                )
+                .await;
+        }
+        writer.abort();
     }
 }

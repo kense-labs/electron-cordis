@@ -20,7 +20,7 @@ const fail = styleText('red', '✗');
 const warn = styleText('yellow', '⚠');
 
 const args = minimist(process.argv, {
-  boolean: ['skipYarnInstall'],
+  boolean: ['skipYarnInstall', 'prepareOnly'],
   string: ['runners', 'target', 'electronVersion'],
   unknown: (arg) => unknownFlags.push(arg)
 });
@@ -117,6 +117,8 @@ async function main() {
     console.log('Generating electron.d.ts as it is missing');
     generateTypeDefinitions();
   }
+
+  if (args.prepareOnly) return;
 
   // Provision a silent virtual printer before launching Electron so the
   // webContents.print() specs can run against a real device. Must happen here

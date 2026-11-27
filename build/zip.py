@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 EXTENSIONS_TO_SKIP = [
@@ -114,7 +115,12 @@ def main(argv):
       dep for dep in dist_files if f"{dep.removeprefix('./')}.stripped" not in dist_files
     }
   if sys.platform == 'darwin' and not should_flatten:
-    execute(['zip', '-r', '-y', dist_zip] + list(dist_files))
+    # Updating an existing archive keeps members removed from the build.
+    output_dir = os.path.dirname(os.path.abspath(dist_zip))
+    with tempfile.TemporaryDirectory(prefix='.electron-zip-', dir=output_dir) as staging:
+      archive = os.path.join(staging, os.path.basename(dist_zip))
+      execute(['zip', '-r', '-y', archive, *sorted(dist_files)])
+      os.replace(archive, dist_zip)
   else:
     with zipfile.ZipFile(
       dist_zip, 'w', zipfile.ZIP_DEFLATED, allowZip64=True

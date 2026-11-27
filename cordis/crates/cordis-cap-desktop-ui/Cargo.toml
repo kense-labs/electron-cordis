@@ -6,13 +6,19 @@ license.workspace = true
 rust-version.workspace = true
 description = "M3 Batch 2 Class-A Rust DSH plugins: @dsh/cap-tray-menu, @dsh/cap-notification, @dsh/cap-os-integration"
 
+[features]
+default = ["tray-menu", "notification", "os-integration"]
+tray-menu = []
+notification = ["dep:tokio"]
+os-integration = []
+
 [dependencies]
 cordis-core.workspace = true
 electron-cordis-kernel = { path = "../cordis-kernel" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 
 [lints]
 workspace = true

@@ -8,6 +8,9 @@
  * APIs to Electron-Lite and failing closed on stripped Class-C APIs.
  */
 import { spawn } from 'node:child_process';
+import { lstat, realpath } from 'node:fs/promises';
+import { createConnection } from 'node:net';
+import { isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline';
 
 export const STRIPPED_CLASS_C_EXPORTS = Object.freeze([
@@ -31,27 +34,33 @@ export class CordisCompatError extends Error {
 
 export class CordisDaemonClient {
   #proc;
+  #writer;
   #nextId = 1;
   #pending = new Map();
   #closed = false;
 
-  constructor({ binaryPath, loadPlanPath, extraArgs = [], env = {} }) {
-    if (!binaryPath) {
-      throw new CordisCompatError(-32000, 'binaryPath is required for CordisDaemonClient');
+  constructor({ binaryPath, socketPath, loadPlanPath, extraArgs = [], env = {} }) {
+    if (Boolean(binaryPath) === Boolean(socketPath)) {
+      throw new CordisCompatError(-32000, 'Specify either binaryPath or socketPath for CordisDaemonClient');
     }
-    const args = [];
-    if (loadPlanPath) args.push('--load-plan', loadPlanPath);
-    if (Array.isArray(extraArgs) && extraArgs.length > 0) {
-      args.push(...extraArgs);
+    let input;
+    if (socketPath) {
+      input = this.#writer = createConnection({ path: socketPath });
+    } else {
+      const args = [];
+      if (loadPlanPath) args.push('--load-plan', loadPlanPath);
+      if (Array.isArray(extraArgs) && extraArgs.length > 0) args.push(...extraArgs);
+      // The child inherits only the environment explicitly provided here.
+      this.#proc = spawn(binaryPath, args, {
+        stdio: ['pipe', 'pipe', 'inherit'],
+        shell: false,
+        env: { PATH: process.env.PATH ?? '', ...env },
+      });
+      input = this.#proc.stdout;
+      this.#writer = this.#proc.stdin;
     }
-    // Security invariant: fixed binary, argv array, shell: false, explicit env allowlist.
-    this.#proc = spawn(binaryPath, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
-      env: { PATH: process.env.PATH ?? '', ...env },
-    });
 
-    const rl = createInterface({ input: this.#proc.stdout });
+    const rl = createInterface({ input });
     rl.on('line', (line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
@@ -80,10 +89,14 @@ export class CordisDaemonClient {
       this.#pending.clear();
     };
 
-    this.#proc.on('exit', (code, signal) =>
+    rl.on('close', () => rejectAll('Cordis connection closed'));
+    const connectionError = (err) => rejectAll(`Cordis connection error: ${err.message}`);
+    rl.on('error', connectionError);
+    this.#writer.on('error', connectionError);
+    this.#proc?.on('exit', (code, signal) =>
       rejectAll(`cordis-daemon exited (code=${code}, signal=${signal})`)
     );
-    this.#proc.on('error', (err) => rejectAll(`cordis-daemon error: ${err.message}`));
+    this.#proc?.on('error', connectionError);
   }
 
   request(method, params = {}) {
@@ -94,7 +107,7 @@ export class CordisDaemonClient {
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
-      this.#proc.stdin.write(payload, 'utf8', (err) => {
+      this.#writer.write(payload, 'utf8', (err) => {
         if (err) {
           this.#pending.delete(id);
           reject(new CordisCompatError(-32098, err.message));
@@ -119,12 +132,13 @@ export class CordisDaemonClient {
     return this.request('cordis.compat.call', { capability, method, args });
   }
 
+  // A socket client closes its connection. The supervisor owns the shared daemon.
   async shutdown() {
     if (this.#closed) return;
     try {
-      await this.request('cordis.shutdown');
+      if (this.#proc) await this.request('cordis.shutdown');
     } finally {
-      this.#proc.stdin.end();
+      this.#writer.end();
     }
   }
 }
@@ -203,18 +217,67 @@ export function createElectronCompatFacades(client) {
       setTrustedPubkey: (pubkeyHex) =>
         client.callCapability('pluginInstaller', 'setTrustedPubkey', { pubkeyHex }),
       install: (signedPkg) => client.callCapability('pluginInstaller', 'install', signedPkg),
+      verifyArchiveManifest: (manifest) => client.callCapability('pluginInstaller', 'verifyArchiveManifest', manifest),
+      installArchive: (manifest, archivePath) => client.callCapability('pluginInstaller', 'installArchive', { manifest, archivePath }),
       rollback: (plugin_id) => client.callCapability('pluginInstaller', 'rollback', { plugin_id }),
       listInstalled: () => client.callCapability('pluginInstaller', 'listInstalled'),
     },
   };
 }
 
+/** Resolve a signed archive when an application first uses the associated plugin. */
+export function createOnDemandPluginResolver({ installer, pluginId, acquireArchive, acceptsVersion = () => true }) {
+  let pending;
+
+  async function resolveActive() {
+    const { plugins } = await installer.listInstalled();
+    let active = plugins.find((record) => record.plugin_id === pluginId);
+    if (!active || !acceptsVersion(active.active_version)) {
+      const { manifest, archivePath, release } = await acquireArchive();
+      try {
+        if (manifest.plugin_id !== pluginId || !acceptsVersion(manifest.version)) {
+          throw new Error(`Unexpected archive identity for ${pluginId}`);
+        }
+        active = await installer.installArchive(manifest, archivePath);
+        if (active.active_version !== manifest.version) {
+          throw new Error(`Archive did not activate version ${manifest.version} of ${pluginId}`);
+        }
+      } finally {
+        await release?.();
+      }
+    }
+    if (active.plugin_id !== pluginId || !acceptsVersion(active.active_version)) {
+      throw new Error(`Incompatible active version for ${pluginId}`);
+    }
+    if (!isAbsolute(active.active_path) || !(await lstat(active.active_path)).isDirectory()) {
+      throw new Error(`Invalid installation directory for ${pluginId}`);
+    }
+    return { ...active, active_path: await realpath(active.active_path) };
+  }
+
+  return () => {
+    pending ??= resolveActive().finally(() => { pending = undefined; });
+    return pending;
+  };
+}
+
+/** Resolve an on-demand plugin from host-configured HTTPS manifest and archive URLs. */
+export function createRemotePluginResolver({
+  installer, pluginId, manifestUrl, archiveUrl, acceptsVersion = () => true, signal, timeoutMs = 15 * 60_000
+}) {
+  return createOnDemandPluginResolver({
+    installer, pluginId, acceptsVersion,
+    acquireArchive: async () => {
+      const { acquirePluginArchive } = await import('./plugin-archive-download.mjs');
+      return acquirePluginArchive({ installer, pluginId, acceptsVersion, manifestUrl, archiveUrl, signal, timeoutMs });
+    }
+  });
+}
+
 /**
- * Drop-in `require('electron')` proxy for Electron-Cordis:
- * - Class-A OS APIs -> routed to Rust DSH plugins in `electron-cordis-daemon`
- * - Class-B Chromium surface APIs (`BrowserWindow`, `ipcMain`, `protocol`, `session`, `app`, ...)
- *   -> passed through untouched to `electronLiteSurface`
- * - Class-C stripped APIs (`BrowserView`, `TouchBar`, `inAppPurchase`, ...) -> FailClosed error
+ * Augments an Electron module with Cordis facades. Native exports retain their
+ * original implementations and signatures. Requests for stripped exports fail
+ * closed when the underlying Electron build omits them.
  */
 export function createPatchedElectronModule(client, electronLiteSurface = {}) {
   const facades = createElectronCompatFacades(client);
@@ -222,7 +285,7 @@ export function createPatchedElectronModule(client, electronLiteSurface = {}) {
 
   return new Proxy(electronLiteSurface, {
     get(target, prop, receiver) {
-      if (typeof prop === 'string') {
+      if (typeof prop === 'string' && !Reflect.has(target, prop)) {
         if (stripped.has(prop)) {
           throw new CordisCompatError(
             -32005,

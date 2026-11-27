@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Electron Cordis <electron-cordis@localhost>
+Date: Thu, 26 Nov 2026 00:00:00 +0000
+Subject: build: allow single-process Blink bindings
+
+Local builders can run multiple code-generation actions on one machine.
+Allow them to reuse the generator's single-process mode so each action
+loads the Web IDL database in only one process.
+
+diff --git a/third_party/blink/renderer/bindings/BUILD.gn b/third_party/blink/renderer/bindings/BUILD.gn
+index 2d6430db9d..34b661d77b 100644
+--- a/third_party/blink/renderer/bindings/BUILD.gn
++++ b/third_party/blink/renderer/bindings/BUILD.gn
+@@ -15,6 +15,11 @@ import("//third_party/blink/renderer/bindings/idl_in_modules.gni")
+ 
+ visibility = [ "//third_party/blink/renderer/*" ]
+ 
++declare_args() {
++  # Avoid nested worker pools when generating bindings on a local build host.
++  blink_bindings_single_process = false
++}
++
+ bindings_gen_dir = get_path_info(".", "gen_dir")
+ 
+ template("collect_idl_files") {
+@@ -179,6 +184,9 @@ template("generate_bindings") {
+     if (blink_enable_generated_code_formatting) {
+       args += [ "--format_generated_files" ]
+     }
++    if (blink_bindings_single_process) {
++      args += [ "--single_process" ]
++    }
+     args += invoker.targets
+ 
+     deps = [ ":web_idl_database" ]

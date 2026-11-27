@@ -25,7 +25,15 @@ Session.prototype._init = function () {
 };
 
 Session.prototype.fetch = function (input: RequestInfo, init?: RequestInit) {
-  return fetchWithSession(input, init, this, net.request);
+  // A Session is only available after app readiness. The Lite path shares
+  // ClientRequest without pulling in the public net module.
+  const request: typeof net.request = BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
+    ? net.request
+    : (options) => {
+        const { ClientRequest } = require('@electron/internal/common/api/net-client-request');
+        return new ClientRequest(options);
+      };
+  return fetchWithSession(input, init, this, request);
 };
 
 const getPreloadsDeprecated = deprecate.warnOnce('session.getPreloads', 'session.getPreloadScripts');

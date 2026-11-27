@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import subprocess
-import os
 import re
+from pathlib import Path
 
 # Find the nearest tag to the current HEAD.
 # This is equivalent to our old logic of "use a value in package.json" for the
@@ -19,18 +19,22 @@ import re
 # and after the tag is made rebuilding the same commit will result in it being
 # 1.2.4.
 
+electron_dir = Path(__file__).resolve().parent.parent
+
 try:
   output = subprocess.check_output(
       ['git', 'describe', '--tags', '--abbrev=0'],
-      cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), '..')),
+      cwd=electron_dir,
       stderr=subprocess.PIPE,
       universal_newlines=True)
   # only remove the 'v' prefix from the tag name.
   version = re.sub('^v', '', output.strip())
   print(version)
 except Exception:
-  # When there is error we print a null version string instead of throwing an
-  # exception, this is because for linux/bsd packages and some vendor builds
-  # electron is built from a source code tarball and there is no git information
-  # there.
-  print('0.0.0-no-git-tag-found')
+  # Cordis clones may omit the upstream release tags. Keep the version from
+  # the pinned Electron base so packagers resolve the matching native headers.
+  upstream_version = electron_dir / 'build' / 'electron-cordis-upstream-version'
+  if upstream_version.is_file():
+    print(upstream_version.read_text(encoding='utf-8').strip())
+  else:
+    print('0.0.0-no-git-tag-found')

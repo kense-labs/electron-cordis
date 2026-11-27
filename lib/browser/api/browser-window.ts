@@ -54,11 +54,13 @@ BrowserWindow.prototype._init = function (this: BWT) {
     unresponsiveEvent = null;
   });
 
-  this._browserViews = [];
+  if (BUILDFLAG(CORDIS_HAS_BROWSER_VIEW)) {
+    this._browserViews = [];
 
-  this.on('closed', () => {
-    this._browserViews.forEach((b) => b.webContents?.close({ waitForBeforeUnload: true }));
-  });
+    this.on('closed', () => {
+      this._browserViews.forEach((b) => b.webContents?.close({ waitForBeforeUnload: true }));
+    });
+  }
 
   // Notify the creation of the window.
   app.emit('browser-window-created', { preventDefault() {} }, this);
@@ -100,9 +102,11 @@ BrowserWindow.fromWebContents = (webContents: WebContents) => {
   return webContents.getOwnerBrowserWindow();
 };
 
-BrowserWindow.fromBrowserView = (browserView: BrowserView) => {
-  return BrowserWindow.fromWebContents(browserView.webContents);
-};
+if (BUILDFLAG(CORDIS_HAS_BROWSER_VIEW)) {
+  BrowserWindow.fromBrowserView = (browserView: BrowserView) => {
+    return BrowserWindow.fromWebContents(browserView.webContents);
+  };
+}
 
 // Forwarded to webContents:
 
@@ -174,60 +178,62 @@ BrowserWindow.prototype.setBackgroundThrottling = function (allowed: boolean) {
   return this.webContents.setBackgroundThrottling(allowed);
 };
 
-BrowserWindow.prototype.addBrowserView = function (browserView: BrowserView) {
-  if (this._browserViews.includes(browserView)) {
-    return;
-  }
+if (BUILDFLAG(CORDIS_HAS_BROWSER_VIEW)) {
+  BrowserWindow.prototype.addBrowserView = function (browserView: BrowserView) {
+    if (this._browserViews.includes(browserView)) {
+      return;
+    }
 
-  const ownerWindow = browserView.ownerWindow;
-  if (ownerWindow && ownerWindow !== this) {
-    ownerWindow.removeBrowserView(browserView);
-  }
-  this.contentView.addChildView(browserView.webContentsView);
-  browserView.ownerWindow = this;
-  browserView.webContents._setOwnerWindow(this);
-  this._browserViews.push(browserView);
-};
-
-BrowserWindow.prototype.setBrowserView = function (browserView: BrowserView) {
-  this._browserViews.forEach((bv) => {
-    this.removeBrowserView(bv);
-  });
-  if (browserView) {
-    this.addBrowserView(browserView);
-  }
-};
-
-BrowserWindow.prototype.removeBrowserView = function (browserView: BrowserView) {
-  const idx = this._browserViews.indexOf(browserView);
-  if (idx >= 0) {
-    this.contentView.removeChildView(browserView.webContentsView);
-    browserView.ownerWindow = null;
-    this._browserViews.splice(idx, 1);
-  }
-};
-
-BrowserWindow.prototype.getBrowserView = function () {
-  if (this._browserViews.length > 1) {
-    throw new Error('This BrowserWindow has multiple BrowserViews - use getBrowserViews() instead');
-  }
-  return this._browserViews[0] ?? null;
-};
-
-BrowserWindow.prototype.getBrowserViews = function () {
-  return [...this._browserViews];
-};
-
-BrowserWindow.prototype.setTopBrowserView = function (browserView: BrowserView) {
-  if (browserView.ownerWindow !== this) {
-    throw new Error('Given BrowserView is not attached to the window');
-  }
-  const idx = this._browserViews.indexOf(browserView);
-  if (idx >= 0) {
+    const ownerWindow = browserView.ownerWindow;
+    if (ownerWindow && ownerWindow !== this) {
+      ownerWindow.removeBrowserView(browserView);
+    }
     this.contentView.addChildView(browserView.webContentsView);
-    this._browserViews.splice(idx, 1);
+    browserView.ownerWindow = this;
+    browserView.webContents._setOwnerWindow(this);
     this._browserViews.push(browserView);
-  }
-};
+  };
+
+  BrowserWindow.prototype.setBrowserView = function (browserView: BrowserView) {
+    this._browserViews.forEach((bv) => {
+      this.removeBrowserView(bv);
+    });
+    if (browserView) {
+      this.addBrowserView(browserView);
+    }
+  };
+
+  BrowserWindow.prototype.removeBrowserView = function (browserView: BrowserView) {
+    const idx = this._browserViews.indexOf(browserView);
+    if (idx >= 0) {
+      this.contentView.removeChildView(browserView.webContentsView);
+      browserView.ownerWindow = null;
+      this._browserViews.splice(idx, 1);
+    }
+  };
+
+  BrowserWindow.prototype.getBrowserView = function () {
+    if (this._browserViews.length > 1) {
+      throw new Error('This BrowserWindow has multiple BrowserViews - use getBrowserViews() instead');
+    }
+    return this._browserViews[0] ?? null;
+  };
+
+  BrowserWindow.prototype.getBrowserViews = function () {
+    return [...this._browserViews];
+  };
+
+  BrowserWindow.prototype.setTopBrowserView = function (browserView: BrowserView) {
+    if (browserView.ownerWindow !== this) {
+      throw new Error('Given BrowserView is not attached to the window');
+    }
+    const idx = this._browserViews.indexOf(browserView);
+    if (idx >= 0) {
+      this.contentView.addChildView(browserView.webContentsView);
+      this._browserViews.splice(idx, 1);
+      this._browserViews.push(browserView);
+    }
+  };
+}
 
 module.exports = BrowserWindow;

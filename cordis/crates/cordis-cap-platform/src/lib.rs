@@ -1,3 +1,10 @@
+#![cfg(any(
+    feature = "desktop-capture",
+    feature = "updater",
+    feature = "plugin-installer",
+    feature = "runtime-node-host"
+))]
+
 //! M3 Batch 3 Class-A Rust DSH platform & supply-chain plugins (Chromium-free):
 //! - `@dsh/cap-desktop-capture`: permission-gated screen/window enumeration (`delivery: "on-demand"`)
 //! - `@dsh/cap-updater`: dual-channel updater (`cordis-canary` Full App + real Ed25519 Renderer-only
@@ -7,18 +14,24 @@
 //! - `@dsh/runtime-node-host`: isolated Node worker host with fixed argv, env allowlist, and
 //!   deterministic kill-on-dispose cleanup barrier
 
+#[cfg(feature = "runtime-node-host")]
 use std::collections::BTreeMap;
 use std::convert::Infallible;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "runtime-node-host")]
+use std::path::Path;
+#[cfg(feature = "runtime-node-host")]
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use cordis_core::{Context, Plugin, Service};
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 use ed25519_dalek::{Signature, VerifyingKey};
+#[cfg(feature = "updater")]
 use electron_cordis_kernel::service_names;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+#[cfg(any(feature = "desktop-capture", feature = "updater"))]
+use serde_json::{json, Value};
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -50,6 +63,7 @@ pub enum PlatformCapError {
     Runtime(String),
 }
 
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 fn decode_hex(hex: &str) -> Result<Vec<u8>, PlatformCapError> {
     let clean = hex.trim();
     if clean.len() % 2 != 0 {
@@ -66,6 +80,7 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>, PlatformCapError> {
     Ok(out)
 }
 
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 fn encode_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -75,11 +90,13 @@ fn encode_hex(bytes: &[u8]) -> String {
     s
 }
 
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 pub fn sha256_hex(data: &[u8]) -> String {
     let digest = Sha256::digest(data);
     encode_hex(&digest)
 }
 
+#[cfg(any(feature = "updater", feature = "plugin-installer"))]
 pub fn verify_ed25519_hex(
     public_key_hex: &str,
     message: &[u8],
@@ -108,6 +125,7 @@ pub fn verify_ed25519_hex(
 // 1. @dsh/cap-desktop-capture (on-demand, permission-gated)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "desktop-capture")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureSource {
     pub id: String,
@@ -115,35 +133,36 @@ pub struct CaptureSource {
     pub kind: String,
 }
 
+#[cfg(feature = "desktop-capture")]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DesktopCaptureConfig {
     #[serde(default)]
     pub screen_recording_granted: bool,
 }
 
+#[cfg(feature = "desktop-capture")]
 #[derive(Clone)]
 pub struct DesktopCaptureService {
     granted: Arc<Mutex<bool>>,
 }
 
+#[cfg(feature = "desktop-capture")]
 impl Service for DesktopCaptureService {
     const NAME: &'static str = CAPTURE_SERVICE_NAME;
 }
 
+#[cfg(feature = "desktop-capture")]
 impl DesktopCaptureService {
     pub fn new(cfg: DesktopCaptureConfig) -> Self {
-        Self {
-            granted: Arc::new(Mutex::new(cfg.screen_recording_granted)),
-        }
+        Self { granted: Arc::new(Mutex::new(cfg.screen_recording_granted)) }
     }
 
     pub fn call_compat(&self, method: &str, args: &Value) -> Result<Value, PlatformCapError> {
         match method {
             "setPermission" => {
-                let g = args
-                    .get("granted")
-                    .and_then(Value::as_bool)
-                    .ok_or_else(|| PlatformCapError::InvalidArgs("missing bool `granted`".into()))?;
+                let g = args.get("granted").and_then(Value::as_bool).ok_or_else(|| {
+                    PlatformCapError::InvalidArgs("missing bool `granted`".into())
+                })?;
                 *self.granted.lock().expect("capture perm lock") = g;
                 Ok(json!({ "granted": g }))
             }
@@ -156,12 +175,7 @@ impl DesktopCaptureService {
                 let types: Vec<String> = args
                     .get("types")
                     .and_then(Value::as_array)
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(Value::as_str)
-                            .map(String::from)
-                            .collect()
-                    })
+                    .map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect())
                     .unwrap_or_else(|| vec!["screen".into()]);
                 let mut sources = Vec::new();
                 if types.iter().any(|t| t == "screen") {
@@ -185,9 +199,11 @@ impl DesktopCaptureService {
     }
 }
 
+#[cfg(feature = "desktop-capture")]
 #[derive(Clone, Default)]
 pub struct DesktopCapturePlugin;
 
+#[cfg(feature = "desktop-capture")]
 impl Plugin for DesktopCapturePlugin {
     type Config = DesktopCaptureConfig;
     type Input = DesktopCaptureConfig;
@@ -200,9 +216,7 @@ impl Plugin for DesktopCapturePlugin {
 
     async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
         let svc = Arc::new(DesktopCaptureService::new(input.clone()));
-        let pub_handle = ctx
-            .provide(svc)
-            .map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
+        let pub_handle = ctx.provide(svc).map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
         ctx.effect_sync(move || {
             let _ = pub_handle.remove();
         })
@@ -215,6 +229,7 @@ impl Plugin for DesktopCapturePlugin {
 // 2. @dsh/cap-updater (Dual-channel: cordis-canary Full App + Ed25519 Renderer-only)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "updater")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdaterConfig {
     /// Side-by-side update channel (must remain isolated from native Electron channel).
@@ -228,14 +243,17 @@ pub struct UpdaterConfig {
     pub trusted_ed25519_pubkey_hex: Option<String>,
 }
 
+#[cfg(feature = "updater")]
 fn default_update_channel() -> String {
     "cordis-canary".to_string()
 }
 
+#[cfg(feature = "updater")]
 fn default_compat_hash() -> String {
     "base=electron-cordis;abi=electron43;v1".to_string()
 }
 
+#[cfg(feature = "updater")]
 impl Default for UpdaterConfig {
     fn default() -> Self {
         Self {
@@ -246,6 +264,7 @@ impl Default for UpdaterConfig {
     }
 }
 
+#[cfg(feature = "updater")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendererUpdateManifest {
     pub version: String,
@@ -255,6 +274,7 @@ pub struct RendererUpdateManifest {
     pub ed25519_signature_hex: String,
 }
 
+#[cfg(feature = "updater")]
 impl RendererUpdateManifest {
     pub fn canonical_signing_bytes(&self) -> Vec<u8> {
         format!(
@@ -265,20 +285,21 @@ impl RendererUpdateManifest {
     }
 }
 
+#[cfg(feature = "updater")]
 #[derive(Clone)]
 pub struct UpdaterService {
     config: Arc<Mutex<UpdaterConfig>>,
 }
 
+#[cfg(feature = "updater")]
 impl Service for UpdaterService {
     const NAME: &'static str = service_names::UPDATER;
 }
 
+#[cfg(feature = "updater")]
 impl UpdaterService {
     pub fn new(config: UpdaterConfig) -> Self {
-        Self {
-            config: Arc::new(Mutex::new(config)),
-        }
+        Self { config: Arc::new(Mutex::new(config)) }
     }
 
     pub fn verify_renderer_update(
@@ -297,9 +318,7 @@ impl UpdaterService {
         }
 
         // 2. Base isolation: MAIN_COMPATIBILITY_HASH MUST carry `base=electron-cordis` and match exactly.
-        if !manifest
-            .main_compatibility_hash
-            .contains("base=electron-cordis")
+        if !manifest.main_compatibility_hash.contains("base=electron-cordis")
             || manifest.main_compatibility_hash != cfg.main_compatibility_hash
         {
             return Err(PlatformCapError::CompatibilityMismatch(format!(
@@ -349,27 +368,20 @@ impl UpdaterService {
                 }))
             }
             "setTrustedPubkey" => {
-                let hex = args
-                    .get("pubkeyHex")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        PlatformCapError::InvalidArgs("missing string `pubkeyHex`".into())
-                    })?;
+                let hex = args.get("pubkeyHex").and_then(Value::as_str).ok_or_else(|| {
+                    PlatformCapError::InvalidArgs("missing string `pubkeyHex`".into())
+                })?;
                 let mut cfg = self.config.lock().expect("updater lock");
                 cfg.trusted_ed25519_pubkey_hex = Some(hex.to_string());
                 Ok(json!({ "configured": true }))
             }
             "verifyRendererUpdate" => {
-                let manifest: RendererUpdateManifest = serde_json::from_value(
-                    args.get("manifest").cloned().unwrap_or(Value::Null),
-                )
-                .map_err(|e| PlatformCapError::InvalidArgs(format!("manifest: {e}")))?;
-                let payload = args
-                    .get("bundleText")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        PlatformCapError::InvalidArgs("missing string `bundleText`".into())
-                    })?;
+                let manifest: RendererUpdateManifest =
+                    serde_json::from_value(args.get("manifest").cloned().unwrap_or(Value::Null))
+                        .map_err(|e| PlatformCapError::InvalidArgs(format!("manifest: {e}")))?;
+                let payload = args.get("bundleText").and_then(Value::as_str).ok_or_else(|| {
+                    PlatformCapError::InvalidArgs("missing string `bundleText`".into())
+                })?;
                 self.verify_renderer_update(&manifest, payload.as_bytes())
             }
             other => Err(PlatformCapError::UnknownMethod(other.to_string())),
@@ -377,9 +389,11 @@ impl UpdaterService {
     }
 }
 
+#[cfg(feature = "updater")]
 #[derive(Clone, Default)]
 pub struct UpdaterPlugin;
 
+#[cfg(feature = "updater")]
 impl Plugin for UpdaterPlugin {
     type Config = UpdaterConfig;
     type Input = UpdaterConfig;
@@ -392,9 +406,7 @@ impl Plugin for UpdaterPlugin {
 
     async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
         let svc = Arc::new(UpdaterService::new(input.clone()));
-        let pub_handle = ctx
-            .provide(svc)
-            .map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
+        let pub_handle = ctx.provide(svc).map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
         ctx.effect_sync(move || {
             let _ = pub_handle.remove();
         })
@@ -403,331 +415,50 @@ impl Plugin for UpdaterPlugin {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 3. @dsh/plugin-installer (Ed25519 + Per-File SHA-256 + Atomic Activate & Rollback)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginPackageFile {
-    pub relative_path: String,
-    pub sha256: String,
-    pub content_utf8: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedPluginPackage {
-    pub plugin_id: String,
-    pub version: String,
-    pub files: Vec<PluginPackageFile>,
-    pub ed25519_signature_hex: String,
-}
-
-impl SignedPluginPackage {
-    pub fn canonical_signing_bytes(&self) -> Vec<u8> {
-        let mut sorted: Vec<(&str, &str)> = self
-            .files
-            .iter()
-            .map(|f| (f.relative_path.as_str(), f.sha256.as_str()))
-            .collect();
-        sorted.sort();
-        let mut s = format!("plugin-pkg-v1|{}|{}", self.plugin_id, self.version);
-        for (path, sha) in sorted {
-            s.push('|');
-            s.push_str(path);
-            s.push('=');
-            s.push_str(sha);
-        }
-        s.into_bytes()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginInstallerConfig {
-    pub store_root: PathBuf,
-    #[serde(default)]
-    pub trusted_ed25519_pubkey_hex: Option<String>,
-}
-
-impl Default for PluginInstallerConfig {
-    fn default() -> Self {
-        Self {
-            store_root: std::env::temp_dir().join("electron-cordis-plugin-store"),
-            trusted_ed25519_pubkey_hex: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstalledPluginState {
-    pub plugin_id: String,
-    pub active_version: String,
-    pub previous_version: Option<String>,
-    pub active_path: PathBuf,
-}
-
-#[derive(Clone)]
-pub struct PluginInstallerService {
-    config: Arc<Mutex<PluginInstallerConfig>>,
-    installed: Arc<Mutex<BTreeMap<String, InstalledPluginState>>>,
-}
-
-impl Service for PluginInstallerService {
-    const NAME: &'static str = service_names::PLUGIN_INSTALLER;
-}
-
-fn sanitize_plugin_dir_name(id: &str) -> Result<String, PlatformCapError> {
-    if id.trim().is_empty() || id.contains('\0') || id.contains("..") {
-        return Err(PlatformCapError::PolicyDenied(format!(
-            "illegal plugin_id `{id}`"
-        )));
-    }
-    Ok(id.replace(['/', '@'], "_"))
-}
-
-fn validate_relative_file_path(rel: &str) -> Result<PathBuf, PlatformCapError> {
-    if rel.trim().is_empty() || rel.contains('\0') {
-        return Err(PlatformCapError::PolicyDenied("empty or NUL file path".into()));
-    }
-    let p = PathBuf::from(rel);
-    if p.is_absolute() {
-        return Err(PlatformCapError::PolicyDenied(format!(
-            "absolute file path forbidden: {rel}"
-        )));
-    }
-    for c in p.components() {
-        if matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
-            return Err(PlatformCapError::PolicyDenied(format!(
-                "path traversal forbidden: {rel}"
-            )));
-        }
-    }
-    Ok(p)
-}
-
-impl PluginInstallerService {
-    pub fn new(config: PluginInstallerConfig) -> Self {
-        Self {
-            config: Arc::new(Mutex::new(config)),
-            installed: Arc::new(Mutex::new(BTreeMap::new())),
-        }
-    }
-
-    /// Verifies Ed25519 manifest signature + per-file SHA-256, stages files into a temp dir,
-    /// atomically activates the target version, and records the prior version for rollback.
-    pub fn install_signed(
-        &self,
-        pkg: &SignedPluginPackage,
-    ) -> Result<InstalledPluginState, PlatformCapError> {
-        let cfg = self.config.lock().expect("installer cfg lock").clone();
-        let pubkey = cfg.trusted_ed25519_pubkey_hex.as_deref().ok_or_else(|| {
-            PlatformCapError::SignatureInvalid(
-                "no trusted Ed25519 public key configured for plugin installer".into(),
-            )
-        })?;
-
-        // 1. Verify Ed25519 signature over canonical manifest (FailClosed).
-        verify_ed25519_hex(
-            pubkey,
-            &pkg.canonical_signing_bytes(),
-            &pkg.ed25519_signature_hex,
-        )?;
-
-        if pkg.files.is_empty() {
-            return Err(PlatformCapError::InvalidArgs(
-                "plugin package must contain at least one file".into(),
-            ));
-        }
-
-        // 2. Verify every file path and SHA-256 BEFORE touching active store.
-        let safe_id = sanitize_plugin_dir_name(&pkg.plugin_id)?;
-        let safe_ver = sanitize_plugin_dir_name(&pkg.version)?;
-        let staging_dir = cfg
-            .store_root
-            .join(".staging")
-            .join(format!("{safe_id}-{safe_ver}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&staging_dir);
-        fs::create_dir_all(&staging_dir)
-            .map_err(|e| PlatformCapError::Runtime(format!("create staging dir: {e}")))?;
-
-        for f in &pkg.files {
-            let rel = validate_relative_file_path(&f.relative_path)?;
-            let actual = sha256_hex(f.content_utf8.as_bytes());
-            if actual != f.sha256.to_ascii_lowercase() {
-                let _ = fs::remove_dir_all(&staging_dir);
-                return Err(PlatformCapError::IntegrityMismatch(format!(
-                    "file `{}` SHA-256 mismatch: expected {}, got {actual}",
-                    f.relative_path, f.sha256
-                )));
-            }
-            let target = staging_dir.join(rel);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| PlatformCapError::Runtime(format!("mkdir staging parent: {e}")))?;
-            }
-            fs::write(&target, f.content_utf8.as_bytes())
-                .map_err(|e| PlatformCapError::Runtime(format!("write staged file: {e}")))?;
-        }
-
-        // 3. Atomic move from staging -> versioned store directory.
-        let plugin_root = cfg.store_root.join(&safe_id);
-        fs::create_dir_all(&plugin_root)
-            .map_err(|e| PlatformCapError::Runtime(format!("create plugin root: {e}")))?;
-        let active_dir = plugin_root.join(&safe_ver);
-        if active_dir.exists() {
-            let _ = fs::remove_dir_all(&active_dir);
-        }
-        fs::rename(&staging_dir, &active_dir)
-            .map_err(|e| PlatformCapError::Runtime(format!("atomic activate rename: {e}")))?;
-
-        let mut map = self.installed.lock().expect("installed lock");
-        let prev = map.get(&pkg.plugin_id).map(|s| s.active_version.clone());
-        let state = InstalledPluginState {
-            plugin_id: pkg.plugin_id.clone(),
-            active_version: pkg.version.clone(),
-            previous_version: prev,
-            active_path: active_dir,
-        };
-        map.insert(pkg.plugin_id.clone(), state.clone());
-        Ok(state)
-    }
-
-    pub fn rollback(&self, plugin_id: &str) -> Result<InstalledPluginState, PlatformCapError> {
-        let cfg = self.config.lock().expect("installer cfg lock").clone();
-        let mut map = self.installed.lock().expect("installed lock");
-        let current = map.get(plugin_id).cloned().ok_or_else(|| {
-            PlatformCapError::InvalidArgs(format!("plugin `{plugin_id}` is not installed"))
-        })?;
-        let prev_ver = current.previous_version.ok_or_else(|| {
-            PlatformCapError::InvalidArgs(format!("plugin `{plugin_id}` has no previous version"))
-        })?;
-        let safe_id = sanitize_plugin_dir_name(plugin_id)?;
-        let safe_prev = sanitize_plugin_dir_name(&prev_ver)?;
-        let prev_path = cfg.store_root.join(&safe_id).join(&safe_prev);
-        if !prev_path.exists() {
-            return Err(PlatformCapError::Runtime(
-                "previous plugin version directory missing on disk".into(),
-            ));
-        }
-        let next = InstalledPluginState {
-            plugin_id: plugin_id.to_string(),
-            active_version: prev_ver,
-            previous_version: Some(current.active_version),
-            active_path: prev_path,
-        };
-        map.insert(plugin_id.to_string(), next.clone());
-        Ok(next)
-    }
-
-    pub fn list_installed(&self) -> Vec<InstalledPluginState> {
-        self.installed
-            .lock()
-            .expect("installed lock")
-            .values()
-            .cloned()
-            .collect()
-    }
-
-    pub fn call_compat(&self, method: &str, args: &Value) -> Result<Value, PlatformCapError> {
-        match method {
-            "setTrustedPubkey" => {
-                let hex = args
-                    .get("pubkeyHex")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        PlatformCapError::InvalidArgs("missing string `pubkeyHex`".into())
-                    })?;
-                self.config
-                    .lock()
-                    .expect("installer cfg lock")
-                    .trusted_ed25519_pubkey_hex = Some(hex.to_string());
-                Ok(json!({ "configured": true }))
-            }
-            "install" => {
-                let pkg: SignedPluginPackage = serde_json::from_value(args.clone())
-                    .map_err(|e| PlatformCapError::InvalidArgs(e.to_string()))?;
-                let st = self.install_signed(&pkg)?;
-                Ok(serde_json::to_value(st).unwrap())
-            }
-            "rollback" => {
-                let id = args
-                    .get("plugin_id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        PlatformCapError::InvalidArgs("missing string `plugin_id`".into())
-                    })?;
-                let st = self.rollback(id)?;
-                Ok(serde_json::to_value(st).unwrap())
-            }
-            "listInstalled" => Ok(json!({ "plugins": self.list_installed() })),
-            other => Err(PlatformCapError::UnknownMethod(other.to_string())),
-        }
-    }
-}
-
-#[derive(Clone, Default)]
-pub struct PluginInstallerPlugin;
-
-impl Plugin for PluginInstallerPlugin {
-    type Config = PluginInstallerConfig;
-    type Input = PluginInstallerConfig;
-    type PrepareError = Infallible;
-    type ApplyError = PlatformCapError;
-
-    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
-        Ok(config)
-    }
-
-    async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
-        let svc = Arc::new(PluginInstallerService::new(input.clone()));
-        let pub_handle = ctx
-            .provide(svc)
-            .map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
-        ctx.effect_sync(move || {
-            let _ = pub_handle.remove();
-        })
-        .map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
-        Ok(())
-    }
-}
+#[cfg(feature = "plugin-installer")]
+mod plugin_installer;
+#[cfg(feature = "plugin-installer")]
+pub use plugin_installer::*;
 
 // ---------------------------------------------------------------------------
 // 4. @dsh/runtime-node-host (Isolated Node worker host with S3 kill-on-dispose)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "runtime-node-host")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeHostConfig {
     #[serde(default = "default_node_bin")]
     pub node_binary: String,
 }
 
+#[cfg(feature = "runtime-node-host")]
 fn default_node_bin() -> String {
     "node".to_string()
 }
 
+#[cfg(feature = "runtime-node-host")]
 impl Default for NodeHostConfig {
     fn default() -> Self {
-        Self {
-            node_binary: default_node_bin(),
-        }
+        Self { node_binary: default_node_bin() }
     }
 }
 
+#[cfg(feature = "runtime-node-host")]
 #[derive(Clone)]
 pub struct RuntimeNodeHostService {
     node_binary: String,
     workers: Arc<Mutex<BTreeMap<String, Child>>>,
 }
 
+#[cfg(feature = "runtime-node-host")]
 impl Service for RuntimeNodeHostService {
     const NAME: &'static str = NODE_HOST_SERVICE_NAME;
 }
 
+#[cfg(feature = "runtime-node-host")]
 impl RuntimeNodeHostService {
     pub fn new(cfg: NodeHostConfig) -> Self {
-        Self {
-            node_binary: cfg.node_binary,
-            workers: Arc::new(Mutex::new(BTreeMap::new())),
-        }
+        Self { node_binary: cfg.node_binary, workers: Arc::new(Mutex::new(BTreeMap::new())) }
     }
 
     /// Spawns a bounded isolated Node worker (fixed binary, explicit argv, cleared env + PATH only).
@@ -738,9 +469,7 @@ impl RuntimeNodeHostService {
         cwd: &Path,
     ) -> Result<u32, PlatformCapError> {
         if worker_id.trim().is_empty() || script_args.is_empty() {
-            return Err(PlatformCapError::InvalidArgs(
-                "worker_id and script_args required".into(),
-            ));
+            return Err(PlatformCapError::InvalidArgs("worker_id and script_args required".into()));
         }
         let mut cmd = Command::new(&self.node_binary);
         cmd.args(script_args)
@@ -756,10 +485,7 @@ impl RuntimeNodeHostService {
             .spawn()
             .map_err(|e| PlatformCapError::Runtime(format!("spawn node worker: {e}")))?;
         let pid = child.id();
-        self.workers
-            .lock()
-            .expect("workers lock")
-            .insert(worker_id.to_string(), child);
+        self.workers.lock().expect("workers lock").insert(worker_id.to_string(), child);
         Ok(pid)
     }
 
@@ -778,9 +504,11 @@ impl RuntimeNodeHostService {
     }
 }
 
+#[cfg(feature = "runtime-node-host")]
 #[derive(Clone, Default)]
 pub struct RuntimeNodeHostPlugin;
 
+#[cfg(feature = "runtime-node-host")]
 impl Plugin for RuntimeNodeHostPlugin {
     type Config = NodeHostConfig;
     type Input = NodeHostConfig;
@@ -794,9 +522,7 @@ impl Plugin for RuntimeNodeHostPlugin {
     async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
         let svc = Arc::new(RuntimeNodeHostService::new(input.clone()));
         let svc_for_kill = Arc::clone(&svc);
-        let pub_handle = ctx
-            .provide(svc)
-            .map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
+        let pub_handle = ctx.provide(svc).map_err(|e| PlatformCapError::Runtime(e.to_string()))?;
         ctx.effect_sync(move || {
             let _ = pub_handle.remove();
             svc_for_kill.kill_all_workers();
@@ -806,8 +532,16 @@ impl Plugin for RuntimeNodeHostPlugin {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "desktop-capture",
+    feature = "updater",
+    feature = "plugin-installer",
+    feature = "runtime-node-host"
+))]
 mod tests {
+    use std::fs;
+
     use cordis_core::PreparedPlugin;
     use ed25519_dalek::{Signer, SigningKey};
     use electron_cordis_kernel::RealmTopology;
@@ -897,7 +631,7 @@ mod tests {
                 PluginInstallerPlugin,
                 PluginInstallerConfig {
                     store_root: store_root.clone(),
-                    trusted_ed25519_pubkey_hex: Some(pk_hex),
+                    trusted_ed25519_pubkey_hex: Some(pk_hex.clone()),
                 },
             ))
             .await
@@ -934,16 +668,47 @@ mod tests {
         assert_eq!(v2.active_version, "1.1.0");
         assert_eq!(v2.previous_version.as_deref(), Some("1.0.0"));
 
+        let restarted = PluginInstallerService::new(PluginInstallerConfig {
+            store_root: store_root.clone(),
+            trusted_ed25519_pubkey_hex: Some(pk_hex),
+        });
+        assert_eq!(restarted.try_list_installed().unwrap()[0].active_version, "1.1.0");
+        let same = sign_pkg("1.1.0", "export const v = 2;", "index.mjs");
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| installer.install_signed(&same).unwrap());
+            let second = scope.spawn(|| restarted.install_signed(&same).unwrap());
+            for retry in [first.join().unwrap(), second.join().unwrap()] {
+                assert_eq!(retry.active_path, v2.active_path);
+                assert_eq!(retry.previous_version.as_deref(), Some("1.0.0"));
+            }
+        });
+        let conflict = sign_pkg("1.1.0", "export const v = 99;", "index.mjs");
+        assert!(matches!(
+            restarted.install_signed(&conflict),
+            Err(PlatformCapError::IntegrityMismatch(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(v2.active_path.join("index.mjs")).unwrap(),
+            "export const v = 2;"
+        );
+
+        let mut incomplete = sign_pkg("1.2.0", "first file", "assets");
+        incomplete.files.extend(sign_pkg("1.2.0", "another file", "assets/index.mjs").files);
+        incomplete.ed25519_signature_hex =
+            encode_hex(&sk.sign(&incomplete.canonical_signing_bytes()).to_bytes());
+        assert!(restarted.install_signed(&incomplete).is_err());
+        let versions_on_disk = fs::read_dir(v2.active_path.parent().unwrap()).unwrap().count();
+        assert_eq!(versions_on_disk, 2);
+        assert_eq!(restarted.try_list_installed().unwrap()[0].active_version, "1.1.0");
+
         // Path traversal fails closed even if signed!
         let evil = sign_pkg("1.2.0", "evil", "../escape.mjs");
-        assert!(matches!(
-            installer.install_signed(&evil),
-            Err(PlatformCapError::PolicyDenied(_))
-        ));
+        assert!(matches!(installer.install_signed(&evil), Err(PlatformCapError::PolicyDenied(_))));
 
         // Rollback atomically switches back to v1.0.0
-        let rb = installer.rollback("@dsh/plugin-science-pack").unwrap();
+        let rb = restarted.rollback("@dsh/plugin-science-pack").unwrap();
         assert_eq!(rb.active_version, "1.0.0");
+        assert_eq!(installer.try_list_installed().unwrap()[0].active_version, "1.0.0");
         assert_eq!(
             fs::read_to_string(rb.active_path.join("index.mjs")).unwrap(),
             "export const v = 1;"
@@ -962,9 +727,7 @@ mod tests {
             .host
             .spawn(PreparedPlugin::from_input(
                 DesktopCapturePlugin,
-                DesktopCaptureConfig {
-                    screen_recording_granted: false,
-                },
+                DesktopCaptureConfig { screen_recording_granted: false },
             ))
             .await
             .unwrap();
@@ -973,21 +736,15 @@ mod tests {
             cap.call_compat("getSources", &json!({ "types": ["screen"] })),
             Err(PlatformCapError::PermissionDenied(_))
         ));
-        cap.call_compat("setPermission", &json!({ "granted": true }))
-            .unwrap();
-        let res = cap
-            .call_compat("getSources", &json!({ "types": ["screen", "window"] }))
-            .unwrap();
+        cap.call_compat("setPermission", &json!({ "granted": true })).unwrap();
+        let res = cap.call_compat("getSources", &json!({ "types": ["screen", "window"] })).unwrap();
         assert_eq!(res["sources"].as_array().unwrap().len(), 2);
         h_cap.dispose().await.unwrap();
 
         // NodeHost spawns real isolated node worker and kills it on Fiber disposal!
         let h_node = topo
             .core
-            .spawn(PreparedPlugin::from_input(
-                RuntimeNodeHostPlugin,
-                NodeHostConfig::default(),
-            ))
+            .spawn(PreparedPlugin::from_input(RuntimeNodeHostPlugin, NodeHostConfig::default()))
             .await
             .unwrap();
         let node_host = topo.core.try_service::<RuntimeNodeHostService>().unwrap();

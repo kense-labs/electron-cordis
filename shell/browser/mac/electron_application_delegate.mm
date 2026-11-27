@@ -13,7 +13,10 @@
 #include "base/mac/mac_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
+#include "electron/buildflags/buildflags.h"
+#if BUILDFLAG(CORDIS_HAS_PUSH_NOTIFICATIONS)
 #include "shell/browser/api/electron_api_push_notifications.h"
+#endif
 #include "shell/browser/browser.h"
 #include "shell/browser/mac/dict_util.h"
 #import "shell/browser/mac/electron_application.h"
@@ -176,6 +179,7 @@ static NSDictionary* UNNotificationResponseToNSDictionary(
   electron::Browser::Get()->NewWindowForTab();
 }
 
+#if BUILDFLAG(CORDIS_HAS_PUSH_NOTIFICATIONS)
 - (void)application:(NSApplication*)application
     didRegisterForRemoteNotificationsWithDeviceToken:(NSData*)deviceToken {
   // Resolve outstanding APNS promises created during registration attempts
@@ -206,6 +210,7 @@ static NSDictionary* UNNotificationResponseToNSDictionary(
         electron::NSDictionaryToValue(userInfo));
   }
 }
+#endif
 
 // This only has an effect on macOS 12+, and requests any state restoration
 // archive to be created with secure encoding. See the article at

@@ -8,9 +8,12 @@
 #include <utility>
 #include <vector>
 
+#include "electron/buildflags/buildflags.h"
 #include "gin/converter.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
 #include "shell/common/api/electron_api_shared_texture.h"
+#endif
 #include "shell/common/gin_converters/blink_converter.h"
 #include "shell/common/gin_converters/serialized_value_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
@@ -330,6 +333,7 @@ void ElectronApiServiceImpl::SetVisualZoomLevelLimits(
   std::move(callback).Run();
 }
 
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
 namespace {
 
 // release() of the object handed to the shared texture receiver: releases the
@@ -394,12 +398,14 @@ void ReleaseReceivedSharedTexture(
 }
 
 }  // namespace
+#endif  // BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
 
 void ElectronApiServiceImpl::ReceiveSharedTexture(
     electron::SerializedValue transfer,
     const std::string& texture_id,
     electron::SerializedValue args,
     ReceiveSharedTextureCallback callback) {
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
   blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
   v8::Isolate* isolate = frame->GetAgentGroupScheduler()->Isolate();
   v8::HandleScope handle_scope(isolate);
@@ -503,6 +509,10 @@ void ElectronApiServiceImpl::ReceiveSharedTexture(
   std::ignore = receiver.As<v8::Function>()->Call(
       context, v8::Undefined(isolate), static_cast<int>(argv.size()),
       argv.data());
+#else
+  std::move(callback).Run(false, electron::SerializedValue(),
+                          "sharedTexture is not enabled in this build");
+#endif
 }
 
 }  // namespace electron

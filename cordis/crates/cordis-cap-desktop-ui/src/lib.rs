@@ -1,16 +1,23 @@
+#![cfg(any(
+    feature = "tray-menu",
+    feature = "notification",
+    feature = "os-integration"
+))]
+
 //! M3 Batch 2 Class-A Rust DSH desktop capability plugins (Chromium-free):
 //! - `@dsh/cap-tray-menu`: bilingual hot-rebuilt tray & application menu model
 //! - `@dsh/cap-notification`: permission-gated non-blocking desktop notifications
 //! - `@dsh/cap-os-integration`: Startup Intent FIFO buffer (Pre-UiReady -> UiReady flush),
 //!   bilingual locale state, and isolated side-by-side protocol registration (`inkstone-cordis://`)
 
+#[cfg(feature = "os-integration")]
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use cordis_core::{Context, Plugin, Service};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use thiserror::Error;
 
 pub const TRAY_PLUGIN_ID: &str = "@dsh/cap-tray-menu";
@@ -37,6 +44,7 @@ pub enum DesktopUiError {
 // 1. @dsh/cap-tray-menu
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "tray-menu")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrayMenuItem {
     pub id: String,
@@ -47,10 +55,12 @@ pub struct TrayMenuItem {
     pub separator: bool,
 }
 
+#[cfg(any(feature = "tray-menu", feature = "notification"))]
 fn default_true() -> bool {
     true
 }
 
+#[cfg(feature = "tray-menu")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrayState {
     pub locale: String,
@@ -58,12 +68,14 @@ pub struct TrayState {
     pub items: Vec<TrayMenuItem>,
 }
 
+#[cfg(feature = "tray-menu")]
 impl Default for TrayState {
     fn default() -> Self {
         Self::for_locale("zh-CN")
     }
 }
 
+#[cfg(feature = "tray-menu")]
 impl TrayState {
     pub fn for_locale(locale: &str) -> Self {
         let is_zh = locale.to_ascii_lowercase().starts_with("zh");
@@ -92,15 +104,18 @@ impl TrayState {
     }
 }
 
+#[cfg(feature = "tray-menu")]
 #[derive(Clone, Default)]
 pub struct TrayMenuService {
     state: Arc<Mutex<TrayState>>,
 }
 
+#[cfg(feature = "tray-menu")]
 impl Service for TrayMenuService {
     const NAME: &'static str = TRAY_SERVICE_NAME;
 }
 
+#[cfg(feature = "tray-menu")]
 impl TrayMenuService {
     pub fn new(locale: &str) -> Self {
         Self {
@@ -144,10 +159,9 @@ impl TrayMenuService {
                 Ok(serde_json::to_value(self.set_locale(locale)?).unwrap())
             }
             "setMenu" => {
-                let items: Vec<TrayMenuItem> = serde_json::from_value(
-                    args.get("items").cloned().unwrap_or_else(|| json!([])),
-                )
-                .map_err(|e| DesktopUiError::InvalidArgs(e.to_string()))?;
+                let items: Vec<TrayMenuItem> =
+                    serde_json::from_value(args.get("items").cloned().unwrap_or_else(|| json!([])))
+                        .map_err(|e| DesktopUiError::InvalidArgs(e.to_string()))?;
                 Ok(serde_json::to_value(self.set_menu(items)?).unwrap())
             }
             "setTooltip" => {
@@ -166,12 +180,14 @@ impl TrayMenuService {
     }
 }
 
+#[cfg(feature = "tray-menu")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrayMenuConfig {
     #[serde(default = "default_locale")]
     pub locale: String,
 }
 
+#[cfg(feature = "tray-menu")]
 impl Default for TrayMenuConfig {
     fn default() -> Self {
         Self {
@@ -180,13 +196,16 @@ impl Default for TrayMenuConfig {
     }
 }
 
+#[cfg(any(feature = "tray-menu", feature = "os-integration"))]
 fn default_locale() -> String {
     "zh-CN".to_string()
 }
 
+#[cfg(feature = "tray-menu")]
 #[derive(Clone, Default)]
 pub struct TrayMenuPlugin;
 
+#[cfg(feature = "tray-menu")]
 impl Plugin for TrayMenuPlugin {
     type Config = TrayMenuConfig;
     type Input = TrayMenuConfig;
@@ -214,6 +233,7 @@ impl Plugin for TrayMenuPlugin {
 // 2. @dsh/cap-notification
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "notification")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationRecord {
     pub id: u64,
@@ -222,28 +242,33 @@ pub struct NotificationRecord {
     pub silent: bool,
 }
 
+#[cfg(feature = "notification")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationConfig {
     #[serde(default = "default_true")]
     pub permitted: bool,
 }
 
+#[cfg(feature = "notification")]
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self { permitted: true }
     }
 }
 
+#[cfg(feature = "notification")]
 #[derive(Clone)]
 pub struct NotificationService {
     permitted: Arc<Mutex<bool>>,
     sent: Arc<Mutex<Vec<NotificationRecord>>>,
 }
 
+#[cfg(feature = "notification")]
 impl Service for NotificationService {
     const NAME: &'static str = NOTIFICATION_SERVICE_NAME;
 }
 
+#[cfg(feature = "notification")]
 impl NotificationService {
     pub fn new(cfg: NotificationConfig) -> Self {
         Self {
@@ -322,9 +347,11 @@ impl NotificationService {
     }
 }
 
+#[cfg(feature = "notification")]
 #[derive(Clone, Default)]
 pub struct NotificationPlugin;
 
+#[cfg(feature = "notification")]
 impl Plugin for NotificationPlugin {
     type Config = NotificationConfig;
     type Input = NotificationConfig;
@@ -352,12 +379,14 @@ impl Plugin for NotificationPlugin {
 // 3. @dsh/cap-os-integration (Startup Intent FIFO + Bilingual Locale + Canary Scheme)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "os-integration")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StartupIntent {
     pub kind: String,
     pub payload: String,
 }
 
+#[cfg(feature = "os-integration")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OsIntegrationConfig {
     #[serde(default = "default_locale")]
@@ -367,10 +396,12 @@ pub struct OsIntegrationConfig {
     pub protocol_scheme: String,
 }
 
+#[cfg(feature = "os-integration")]
 fn default_scheme() -> String {
     "inkstone-cordis".to_string()
 }
 
+#[cfg(feature = "os-integration")]
 impl Default for OsIntegrationConfig {
     fn default() -> Self {
         Self {
@@ -380,6 +411,7 @@ impl Default for OsIntegrationConfig {
     }
 }
 
+#[cfg(feature = "os-integration")]
 struct OsIntegrationState {
     locale: String,
     protocol_scheme: String,
@@ -387,15 +419,18 @@ struct OsIntegrationState {
     startup_intents: VecDeque<StartupIntent>,
 }
 
+#[cfg(feature = "os-integration")]
 #[derive(Clone)]
 pub struct OsIntegrationService {
     state: Arc<Mutex<OsIntegrationState>>,
 }
 
+#[cfg(feature = "os-integration")]
 impl Service for OsIntegrationService {
     const NAME: &'static str = OS_INTEGRATION_SERVICE_NAME;
 }
 
+#[cfg(feature = "os-integration")]
 impl OsIntegrationService {
     pub fn new(cfg: OsIntegrationConfig) -> Self {
         Self {
@@ -466,9 +501,11 @@ impl OsIntegrationService {
     }
 }
 
+#[cfg(feature = "os-integration")]
 #[derive(Clone, Default)]
 pub struct OsIntegrationPlugin;
 
+#[cfg(feature = "os-integration")]
 impl Plugin for OsIntegrationPlugin {
     type Config = OsIntegrationConfig;
     type Input = OsIntegrationConfig;
@@ -492,7 +529,12 @@ impl Plugin for OsIntegrationPlugin {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "tray-menu",
+    feature = "notification",
+    feature = "os-integration"
+))]
 mod tests {
     use cordis_core::PreparedPlugin;
     use electron_cordis_kernel::RealmTopology;

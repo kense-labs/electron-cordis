@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Electron Cordis 开发环境</title>
+    <style>
+      :root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; }
+      body { margin: 0; padding: 38px; }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      dl { margin: 24px 0; border-top: 1px solid GrayText; }
+      dl div { display: grid; grid-template-columns: 7rem 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid GrayText; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      button { font: inherit; padding: 6px 12px; }
+    </style>
+    <script src="renderer.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>Electron Cordis</h1>
+      <p id="status" role="status">正在连接 Cordis…</p>
+      <dl>
+        <div><dt>Electron</dt><dd id="electron"></dd></div>
+        <div><dt>Profile</dt><dd id="profile"></dd></div>
+        <div><dt>内核阶段</dt><dd id="phase"></dd></div>
+      </dl>
+      <button id="refresh" type="button">刷新状态</button>
+    </main>
+  </body>
+</html>

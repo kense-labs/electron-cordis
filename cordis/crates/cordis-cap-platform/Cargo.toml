@@ -6,15 +6,29 @@ license.workspace = true
 rust-version.workspace = true
 description = "M3 Batch 3 Class-A Rust DSH plugins: @dsh/cap-desktop-capture, @dsh/cap-updater (Ed25519 + compat hash), @dsh/plugin-installer, @dsh/runtime-node-host"
 
+[features]
+default = ["desktop-capture", "updater", "plugin-installer", "runtime-node-host"]
+desktop-capture = []
+updater = ["dep:sha2", "dep:ed25519-dalek", "dep:electron-cordis-kernel"]
+plugin-installer = ["dep:sha2", "dep:ed25519-dalek", "dep:electron-cordis-kernel", "dep:fs4", "dep:tempfile", "dep:flate2", "dep:tar", "dep:libc"]
+runtime-node-host = []
+
 [dependencies]
 cordis-core.workspace = true
-ed25519-dalek.workspace = true
-electron-cordis-kernel = { path = "../cordis-kernel" }
+ed25519-dalek = { workspace = true, optional = true }
+electron-cordis-kernel = { path = "../cordis-kernel", optional = true }
+flate2 = { version = "1.1", optional = true }
+fs4 = { version = "0.13", optional = true }
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
+sha2 = { workspace = true, optional = true }
+tar = { version = "0.4", default-features = false, optional = true }
+tempfile = { version = "3.27", default-features = false, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [lints]
 workspace = true

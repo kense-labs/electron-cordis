@@ -4,12 +4,15 @@
 
 #include <string>
 
+#include "electron/buildflags/buildflags.h"
 #include "net/base/filename_util.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/host_resolver.mojom.h"
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
 #include "shell/browser/api/electron_api_web_socket.h"
+#endif
 #include "shell/browser/net/resolve_host_function.h"
 #include "shell/common/api/electron_api_url_loader.h"
 #include "shell/common/gin_converters/file_path_converter.h"
@@ -22,9 +25,11 @@
 
 namespace {
 
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
 bool IsOnline() {
   return !net::NetworkChangeNotifier::IsOffline();
 }
+#endif
 
 bool IsValidHeaderName(std::string header_name) {
   return net::HttpUtil::IsValidHeaderName(header_name);
@@ -42,6 +47,7 @@ base::FilePath FileURLToFilePath(v8::Isolate* isolate, const GURL& url) {
   return path;
 }
 
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
 v8::Local<v8::Promise> ResolveHost(
     v8::Isolate* isolate,
     std::string host,
@@ -72,9 +78,9 @@ v8::Local<v8::Promise> ResolveHost(
 
   return handle;
 }
+#endif
 
 using electron::api::SimpleURLLoaderWrapper;
-using electron::api::WebSocketWrapper;
 
 void Initialize(v8::Local<v8::Object> exports,
                 v8::Local<v8::Value> unused,
@@ -83,13 +89,19 @@ void Initialize(v8::Local<v8::Object> exports,
   v8::Isolate* const isolate = v8::Isolate::GetCurrent();
 
   gin_helper::Dictionary dict{isolate, exports};
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
   dict.SetMethod<&IsOnline>("isOnline");
+#endif
   dict.SetMethod<&IsValidHeaderName>("isValidHeaderName");
   dict.SetMethod<&IsValidHeaderValue>("isValidHeaderValue");
   dict.SetMethod<&SimpleURLLoaderWrapper::Create>("createURLLoader");
-  dict.SetMethod<&WebSocketWrapper::Create>("createWebSocket");
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
+  dict.SetMethod<&electron::api::WebSocketWrapper::Create>("createWebSocket");
+#endif
   dict.SetMethod<&FileURLToFilePath>("fileURLToFilePath");
+#if BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
   dict.SetMethod<&ResolveHost>("resolveHost");
+#endif
 }
 
 }  // namespace

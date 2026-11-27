@@ -36,7 +36,6 @@ error[E0423]: cannot initialize a tuple struct which contains private fields
 10 |     let _forged = FiberId(std::sync::Arc::new(0));
    |                   ^^^^^^^
    |
-   = note: a struct named `FiberId` exists in another namespace
 note: constructor is not visible here due to private fields
   --> src/fiber/mod.rs
    |

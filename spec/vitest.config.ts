@@ -71,6 +71,12 @@ process.env.ELECTRON_SPEC_WORKERS = String(maxWorkers);
 
 // Per test and per hook; sanitizer builds raise it (ELECTRON_SPEC_TIMEOUT).
 const timeout = Number(process.env.ELECTRON_SPEC_TIMEOUT) || 30_000;
+const idleLimit = process.env.ELECTRON_SPEC_WORKER_IDLE_TIMEOUT_MS;
+const workerIdleTimeoutMs = idleLimit === undefined ? undefined : Number(idleLimit);
+if (workerIdleTimeoutMs !== undefined &&
+    (!Number.isInteger(workerIdleTimeoutMs) || workerIdleTimeoutMs < 1 || workerIdleTimeoutMs > 2_147_483_647)) {
+  throw new Error('ELECTRON_SPEC_WORKER_IDLE_TIMEOUT_MS must be a positive integer in the Node timer range');
+}
 
 const reporters: (string | [string, Record<string, unknown>] | SpecTimingsReporter | RetryReporter)[] = ['default'];
 if (process.env.GITHUB_ACTIONS === 'true') {
@@ -112,7 +118,7 @@ export default defineConfig({
       viteModuleRunner: false,
       nodeLoader: false
     },
-    pool: electronPool({ electronPath, specDir, electronArgs }),
+    pool: electronPool({ electronPath, specDir, electronArgs, workerIdleTimeoutMs }),
     // A fresh Electron process per spec file.
     isolate: true,
     globals: false,
@@ -148,7 +154,8 @@ export default defineConfig({
           // Typed as CLI-only, but honoured per project.
           ...({ tagsFilter: [`!${SERIAL_TAG}`] } as object),
           maxWorkers,
-          sequence: { hooks: 'list', groupOrder: 0 }
+          // Vitest moves order 0 with one isolated worker to a trailing group.
+          sequence: { hooks: 'list', groupOrder: 1 }
         }
       },
       {
@@ -157,13 +164,13 @@ export default defineConfig({
           name: SERIAL_TAG,
           // Also wait for earlier workers, including the parallel phase's, to
           // have quit: vitest does not.
-          pool: electronPool({ electronPath, specDir, electronArgs, exclusive: true }),
+          pool: electronPool({ electronPath, specDir, electronArgs, workerIdleTimeoutMs, exclusive: true }),
           // An empty list would fall back to the root include.
           include: serialFiles.length ? serialFiles : ['.none'],
           ...({ tagsFilter: [SERIAL_TAG] } as object),
           maxWorkers: 1,
           fileParallelism: false,
-          sequence: { hooks: 'list', groupOrder: 1 }
+          sequence: { hooks: 'list', groupOrder: 2 }
         }
       }
     ]

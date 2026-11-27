@@ -63,10 +63,41 @@
 #include "shell/common/v8_oom_diagnostics.h"
 #endif
 
+#if BUILDFLAG(CORDIS_HAS_CONTENT_TRACING)
+#define ELECTRON_CONTENT_TRACING_BINDING(V) V(electron_browser_content_tracing)
+#else
+#define ELECTRON_CONTENT_TRACING_BINDING(V)
+#endif
+
+#if BUILDFLAG(CORDIS_HAS_IN_APP_PURCHASE)
+#define ELECTRON_IN_APP_PURCHASE_BINDING(V) V(electron_browser_in_app_purchase)
+#else
+#define ELECTRON_IN_APP_PURCHASE_BINDING(V)
+#endif
+
+#if BUILDFLAG(CORDIS_HAS_PUSH_NOTIFICATIONS)
+#define ELECTRON_PUSH_NOTIFICATIONS_BINDING(V) V(electron_browser_push_notifications)
+#else
+#define ELECTRON_PUSH_NOTIFICATIONS_BINDING(V)
+#endif
+
+#if BUILDFLAG(CORDIS_KEEP_LEGACY_SAFE_STORAGE)
+#define ELECTRON_SAFE_STORAGE_BINDINGS(V) V(electron_browser_safe_storage)
+#else
+#define ELECTRON_SAFE_STORAGE_BINDINGS(V)
+#endif
+
+#if BUILDFLAG(CORDIS_KEEP_LEGACY_CLIPBOARD)
+#define ELECTRON_CLIPBOARD_BINDINGS(V) V(electron_browser_clipboard) \
+  V(electron_browser_clipboard_item)
+#else
+#define ELECTRON_CLIPBOARD_BINDINGS(V)
+#endif
+
 #define ELECTRON_BROWSER_BINDINGS(V)      \
   V(electron_browser_app)                 \
   V(electron_browser_auto_updater)        \
-  V(electron_browser_content_tracing)     \
+  ELECTRON_CONTENT_TRACING_BINDING(V)    \
   V(electron_browser_crash_reporter)      \
   V(electron_browser_desktop_capturer)    \
   V(electron_browser_dialog)              \
@@ -74,7 +105,7 @@
   V(electron_browser_ipc_dispatch)        \
   V(electron_browser_global_shortcut)     \
   V(electron_browser_image_view)          \
-  V(electron_browser_in_app_purchase)     \
+  ELECTRON_IN_APP_PURCHASE_BINDING(V)    \
   V(electron_browser_menu)                \
   V(electron_browser_message_port)        \
   V(electron_browser_msix_updater)        \
@@ -83,15 +114,14 @@
   V(electron_browser_power_monitor)       \
   V(electron_browser_power_save_blocker)  \
   V(electron_browser_protocol)            \
-  V(electron_browser_push_notifications)  \
-  V(electron_browser_safe_storage)        \
+  ELECTRON_PUSH_NOTIFICATIONS_BINDING(V) \
+  ELECTRON_SAFE_STORAGE_BINDINGS(V)      \
   V(electron_browser_service_worker_main) \
   V(electron_browser_session)             \
   V(electron_browser_screen)              \
   V(electron_browser_system_preferences)  \
   V(electron_browser_base_window)         \
-  V(electron_browser_clipboard)           \
-  V(electron_browser_clipboard_item)      \
+  ELECTRON_CLIPBOARD_BINDINGS(V)         \
   V(electron_browser_tray)                \
   V(electron_browser_utility_process)     \
   V(electron_browser_view)                \
@@ -102,6 +132,12 @@
   V(electron_browser_window)              \
   V(electron_common_net)
 
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
+#define ELECTRON_SHARED_TEXTURE_BINDING(V) V(electron_common_shared_texture)
+#else
+#define ELECTRON_SHARED_TEXTURE_BINDING(V)
+#endif
+
 #define ELECTRON_COMMON_BINDINGS(V)   \
   V(electron_common_asar)             \
   V(electron_common_command_line)     \
@@ -109,7 +145,7 @@
   V(electron_common_events)           \
   V(electron_common_features)         \
   V(electron_common_native_image)     \
-  V(electron_common_shared_texture)   \
+  ELECTRON_SHARED_TEXTURE_BINDING(V)  \
   V(electron_common_shell)            \
   V(electron_common_v8_util)
 

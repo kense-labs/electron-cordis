@@ -14,20 +14,53 @@ path = "src/lib.rs"
 name = "electron-cordis-daemon"
 path = "src/main.rs"
 
+[features]
+default = [
+    "cap-clipboard",
+    "cap-safe-storage",
+    "cap-dialog",
+    "cap-os-shell",
+    "cap-tray-menu",
+    "cap-notification",
+    "cap-os-integration",
+    "cap-desktop-capture",
+    "cap-updater",
+    "plugin-installer",
+    "runtime-node-host",
+]
+cap-clipboard = ["dep:electron-cordis-cap-clipboard"]
+cap-safe-storage = ["dep:electron-cordis-cap-safe-storage"]
+cap-dialog = ["dep:electron-cordis-cap-dialog"]
+cap-os-shell = ["dep:electron-cordis-cap-os-shell"]
+cap-tray-menu = ["electron-cordis-cap-desktop-ui/tray-menu"]
+cap-notification = ["electron-cordis-cap-desktop-ui/notification"]
+cap-os-integration = ["electron-cordis-cap-desktop-ui/os-integration"]
+cap-desktop-capture = ["electron-cordis-cap-platform/desktop-capture"]
+cap-updater = ["electron-cordis-cap-platform/updater"]
+plugin-installer = ["electron-cordis-cap-platform/plugin-installer"]
+runtime-node-host = ["electron-cordis-cap-platform/runtime-node-host"]
+
 [dependencies]
 cordis-core.workspace = true
-electron-cordis-cap-clipboard = { path = "../cordis-cap-clipboard" }
-electron-cordis-cap-desktop-ui = { path = "../cordis-cap-desktop-ui" }
-electron-cordis-cap-dialog = { path = "../cordis-cap-dialog" }
-electron-cordis-cap-os-shell = { path = "../cordis-cap-os-shell" }
-electron-cordis-cap-platform = { path = "../cordis-cap-platform" }
-electron-cordis-cap-safe-storage = { path = "../cordis-cap-safe-storage" }
+cordis-loader.workspace = true
+electron-cordis-cap-clipboard = { path = "../cordis-cap-clipboard", optional = true }
+electron-cordis-cap-desktop-ui = { path = "../cordis-cap-desktop-ui", optional = true, default-features = false }
+electron-cordis-cap-dialog = { path = "../cordis-cap-dialog", optional = true }
+electron-cordis-cap-os-shell = { path = "../cordis-cap-os-shell", optional = true }
+electron-cordis-cap-platform = { path = "../cordis-cap-platform", optional = true, default-features = false }
+electron-cordis-cap-safe-storage = { path = "../cordis-cap-safe-storage", optional = true }
 electron-cordis-kernel = { path = "../cordis-kernel" }
 electron-cordis-wire = { path = "../cordis-wire" }
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-std", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_System_Threading"] }
 
 [lints]
 workspace = true

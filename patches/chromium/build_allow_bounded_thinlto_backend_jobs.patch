@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Electron Cordis <electron-cordis@localhost>
+Date: Thu, 26 Nov 2026 00:00:00 +0000
+Subject: build: allow bounded ThinLTO backend jobs
+
+Expose the ThinLTO backend worker count to local builds. Limit worker
+parallelism independently of the link pool while retaining the upstream
+default for builds without an explicit bound.
+
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index 8c3aaebd9c..1d6da7160d 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -131,6 +131,10 @@ declare_args() {
+   # The cache can lead to non-determinism: https://crbug.com/1486045
+   thin_lto_enable_cache = true
+ 
++  # Limit workers within a ThinLTO link on hosts with constrained memory.
++  # Zero retains the upstream choice to use all hardware threads.
++  thin_lto_backend_jobs = 0
++
+   # Initialize all local variables with a pattern. This flag will fill
+   # uninitialized floating-point types (and 32-bit pointers) with 0xFF and the
+   # rest with 0xAA. This makes behavior of uninitialized memory bugs consistent,
+@@ -768,6 +772,12 @@ config("compiler") {
+   # [1]: https://pinpoint-dot-chromeperf.appspot.com/job/157f0b42be0000
+   if (!is_debug && use_thin_lto && is_a_target_toolchain) {
+     assert(use_lld, "LTO is only supported with lld")
++    assert(thin_lto_backend_jobs >= 0,
++           "ThinLTO worker count must be nonnegative")
++    _thin_lto_jobs = "all"
++    if (thin_lto_backend_jobs > 0) {
++      _thin_lto_jobs = "$thin_lto_backend_jobs"
++    }
+ 
+     cflags += [
+       "-flto=thin",
+@@ -813,7 +823,7 @@ config("compiler") {
+ 
+     if (is_win) {
+       ldflags += [
+-        "/opt:lldltojobs=all",
++        "/opt:lldltojobs=$_thin_lto_jobs",
+         "-mllvm:-import-instr-limit=$import_instr_limit",
+         "-mllvm:-disable-auto-upgrade-debug-info",
+       ]
+@@ -824,11 +834,8 @@ config("compiler") {
+       # usage in crbug.com/1038040. Note this will increase build time in
+       # Chrome OS.
+ 
+-      # In ThinLTO builds, we run at most one link process at a time,
+-      # and let it use all cores.
+-      # TODO(thakis): Check if '=0' (that is, number of cores, instead
+-      # of "all" which means number of hardware threads) is faster.
+-      ldflags += [ "-Wl,--thinlto-jobs=all" ]
++      # The build pool limits link processes separately from backend workers.
++      ldflags += [ "-Wl,--thinlto-jobs=$_thin_lto_jobs" ]
+ 
+       if (is_chromeos) {
+         # ARM was originally set lower than x86 to keep the size

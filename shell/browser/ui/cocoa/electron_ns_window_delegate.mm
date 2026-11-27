@@ -9,10 +9,13 @@
 #include "base/mac/mac_util.h"
 #include "base/task/single_thread_task_runner.h"
 #include "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
+#include "electron/buildflags/buildflags.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/native_window_mac.h"
 #include "shell/browser/ui/cocoa/electron_preview_item.h"
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
 #include "shell/browser/ui/cocoa/electron_touch_bar.h"
+#endif
 #include "ui/gfx/geometry/resize_utils.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 #include "ui/views/cocoa/native_widget_mac_ns_window_host.h"
@@ -444,10 +447,11 @@ using TitleBarStyle = electron::NativeWindowMac::TitleBarStyle;
 
 - (NSTouchBarItem*)touchBar:(NSTouchBar*)touchBar
       makeItemForIdentifier:(NSTouchBarItemIdentifier)identifier {
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
   if (touchBar && shell_->touch_bar())
     return [shell_->touch_bar() makeItemForIdentifier:identifier];
-  else
-    return nil;
+#endif
+  return nil;
 }
 
 #pragma mark - QLPreviewPanelDataSource

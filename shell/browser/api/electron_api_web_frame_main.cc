@@ -23,6 +23,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/isolated_world_ids.h"
+#include "electron/buildflags/buildflags.h"
 #include "gin/object_template_builder.h"
 #include "gin/persistent.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
@@ -515,6 +516,7 @@ WebFrameMain::BindPromiseToReply(
                      electron::SerializedValue(), std::string()));
 }
 
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
 v8::Local<v8::Promise> WebFrameMain::TransferSharedTexture(
     v8::Isolate* isolate,
     v8::Local<v8::Value> transfer,
@@ -539,6 +541,7 @@ v8::Local<v8::Promise> WebFrameMain::TransferSharedTexture(
                               BindPromiseToReply(std::move(promise)));
   return handle;
 }
+#endif
 
 mojom::ElectronFrame* WebFrameMain::GetFrameApi() {
   if (!HasRenderFrame() || !render_frame_host()->IsRenderFrameLive())
@@ -860,7 +863,9 @@ void WebFrameMain::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod<&WebFrameMain::Reload>("reload")
       .SetMethod<&WebFrameMain::IsDestroyed>("isDestroyed")
       .SetMethod<&WebFrameMain::Send>("send")
+#if BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE)
       .SetMethod<&WebFrameMain::TransferSharedTexture>("_transferSharedTexture")
+#endif
       .SetMethod<&WebFrameMain::PostMessage>("postMessage")
       .SetProperty<&WebFrameMain::Detached>("detached")
       .SetProperty<&WebFrameMain::FrameTreeNodeID>("frameTreeNodeId")

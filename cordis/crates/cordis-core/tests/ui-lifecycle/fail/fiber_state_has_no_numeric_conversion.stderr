@@ -7,16 +7,19 @@ error[E0277]: the trait bound `u8: From<cordis_core::FiberState>` is not satisfi
 help: `u8` implements trait `From<T>`
  --> $RUST/core/src/convert/num.rs
   |
-  = note: `From<bool>`
- ::: $RUST/core/src/convert/num.rs
+  |         const impl From<bool> for $int {
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<bool>`
+...
+  | impl_from_bool!(u8 u16 u32 u64 u128 usize);
+  | ------------------------------------------ in this macro invocation
   |
-  = note: in this macro invocation
- --> $RUST/core/src/ascii/ascii_char.rs
-  |
-  = note: `From<std::ascii::Char>`
  ::: $RUST/core/src/ascii/ascii_char.rs
   |
-  = note: in this macro invocation
+  |             const impl From<AsciiChar> for $ty {
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<std::ascii::Char>`
+...
+  | into_int_impl!(u8 u16 u32 u64 u128 char);
+  | ---------------------------------------- in this macro invocation
   = note: required for `cordis_core::FiberState` to implement `Into<u8>`
   = note: this error originates in the macro `impl_from_bool` which comes from the expansion of the macro `into_int_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 

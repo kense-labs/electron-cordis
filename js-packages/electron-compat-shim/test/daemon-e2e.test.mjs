@@ -64,6 +64,24 @@ test('e2e: standalone daemon refuses a load plan that requires embedded isolatio
   }
 });
 
+test('socket clients share a daemon and disconnect independently', { skip: process.platform === 'win32' }, async () => {
+  const socketDir = mkdtempSync('/tmp/cordis-e2e-');
+  const socketPath = path.join(socketDir, 'cordis.sock');
+  const owner = new CordisDaemonClient({ binaryPath: DAEMON_BIN, extraArgs: ['--socket', socketPath] });
+  let ui;
+  try {
+    assert.equal((await owner.health()).ui_ready, false);
+    ui = new CordisDaemonClient({ socketPath });
+    assert.equal((await ui.notifyUiReady()).ui_ready, true);
+    await ui.shutdown();
+    assert.equal((await owner.health()).ui_ready, true);
+  } finally {
+    await ui?.shutdown();
+    await owner.shutdown();
+    rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 test('e2e: electron-compat-shim drives real electron-cordis-daemon across health -> ui_ready -> auth.swap -> compat caps -> shutdown', async () => {
   assert.ok(
     existsSync(DAEMON_BIN),

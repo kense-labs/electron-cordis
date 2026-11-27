@@ -6,6 +6,7 @@
   "devDependencies": {
     "@azure/storage-blob": "^12.28.0",
     "@datadog/datadog-ci": "^5.17.0",
+    "@electron-internal/extract-zip": "^1.0.1",
     "@electron/asar": "^4.3.0",
     "@electron/docs-parser": "^3.0.3",
     "@electron/fiddle-core": "^2.2.2",

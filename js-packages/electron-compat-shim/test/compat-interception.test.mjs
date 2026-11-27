@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,9 @@ import {
   CordisCompatError,
   CordisDaemonClient,
   STRIPPED_CLASS_C_EXPORTS,
+  createOnDemandPluginResolver,
   createPatchedElectronModule,
+  createRemotePluginResolver,
 } from '../src/index.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,11 +28,20 @@ const DAEMON_BIN = path.join(
 
 function generateDesktopLoadPlan() {
   const outDir = mkdtempSync(path.join(tmpdir(), 'cordis-compat-'));
+  const profile = JSON.parse(
+    readFileSync(path.join(ELECTRON_CORDIS_ROOT, 'profiles/inkstone-desktop.cordis.json'), 'utf8')
+  );
+  profile.plugins.find(({ id }) => id === '@dsh/cap-desktop-capture').delivery = 'bundled';
+  profile.plugins.find(({ id }) => id === '@dsh/plugin-installer').config = {
+    store_root: path.join(outDir, 'plugin-store'),
+  };
+  const profilePath = path.join(outDir, 'test-desktop.cordis.json');
+  writeFileSync(profilePath, JSON.stringify(profile));
   execFileSync(
     'python3',
     [
       path.join(ELECTRON_CORDIS_ROOT, 'script/gen-cordis-build.py'),
-      path.join(ELECTRON_CORDIS_ROOT, 'profiles/inkstone-desktop.cordis.json'),
+      profilePath,
       '--out-dir',
       outDir,
     ],
@@ -50,6 +61,102 @@ function generateEd25519Pair() {
 function sha256Hex(str) {
   return crypto.createHash('sha256').update(str, 'utf8').digest('hex');
 }
+
+test('preserves native classes, synchronous methods, and property descriptors', () => {
+  const clipboard = Object.freeze({ readText: () => 'native text' });
+  const BrowserView = class BrowserView {};
+  const nativeElectron = Object.freeze({ clipboard, BrowserView });
+  const electron = createPatchedElectronModule({
+    callCapability: () => assert.fail('Native exports must use the Electron implementation'),
+  }, nativeElectron);
+
+  assert.equal(electron.clipboard, clipboard);
+  assert.equal(electron.clipboard.readText(), 'native text');
+  assert.equal(electron.BrowserView, BrowserView);
+  assert.deepEqual(Object.getOwnPropertyDescriptors(electron), Object.getOwnPropertyDescriptors(nativeElectron));
+});
+
+test('on-demand plugin resolution shares requests, honors compatible rollback, and upgrades incompatible versions', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'cordis-plugin-resolver-'));
+  const pluginId = '@dsh/science';
+  let active;
+  let downloads = 0;
+  let reads = 0;
+  let installs = 0;
+  let releases = 0;
+  let accepted = ['1.0.0', '1.1.0'];
+  let available = '1.1.0';
+  const load = createOnDemandPluginResolver({
+    pluginId,
+    acceptsVersion: (version) => accepted.includes(version),
+    acquireArchive: async () => {
+      downloads += 1;
+      if (downloads === 1) throw new Error('download interrupted');
+      return {
+        manifest: { plugin_id: pluginId, version: available }, archivePath: '/archive.tar.gz',
+        release: async () => { releases += 1; }
+      };
+    },
+    installer: {
+      listInstalled: async () => {
+        reads += 1;
+        return { plugins: active ? [active] : [] };
+      },
+      installArchive: async (manifest) => {
+        installs += 1;
+        active = { plugin_id: manifest.plugin_id, active_version: manifest.version, active_path: directory };
+        return active;
+      },
+    },
+  });
+  try {
+    assert.equal(reads, 0);
+    const first = load();
+    assert.equal(load(), first);
+    await assert.rejects(first, /download interrupted/);
+    const retry = load();
+    assert.equal(load(), retry);
+    assert.equal((await retry).active_path, realpathSync(directory));
+    active = { ...active, active_version: '1.0.0' };
+    assert.equal((await load()).active_version, '1.0.0');
+    assert.equal(downloads, 2);
+
+    accepted = ['2.0.0'];
+    await assert.rejects(load(), /Unexpected archive identity/);
+    assert.equal(active.active_version, '1.0.0');
+    assert.equal(installs, 1);
+
+    available = '2.0.0';
+    const upgrade = load();
+    assert.equal(load(), upgrade);
+    assert.equal((await upgrade).active_version, '2.0.0');
+    assert.equal((await load()).active_version, '2.0.0');
+    assert.equal(downloads, 4);
+    assert.equal(installs, 2);
+    assert.equal(releases, 3);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('remote plugin resolution asks Cordis to verify the manifest before downloading the archive', async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    requests.push(url.pathname);
+    return new Response(JSON.stringify({ plugin_id: '@dsh/science', version: '1.0.0', archive_bytes: 12 }));
+  });
+  const load = createRemotePluginResolver({
+    pluginId: '@dsh/science', manifestUrl: 'https://plugins.example/manifest.json',
+    archiveUrl: 'https://plugins.example/archive.tar.gz', installer: {
+      listInstalled: async () => ({ plugins: [] }),
+      verifyArchiveManifest: async () => { throw new Error('invalid archive signature'); },
+      installArchive: async () => assert.fail('Installer was called with an unverified archive')
+    }
+  });
+  assert.deepEqual(requests, []);
+  await assert.rejects(load(), /invalid archive signature/);
+  assert.deepEqual(requests, ['/manifest.json']);
+});
 
 test('patched electron module intercepts Batch 1-3 Class-A APIs (including cross-language Ed25519), passes through Class-B, and fails closed on Class-C', async () => {
   assert.ok(existsSync(DAEMON_BIN), `missing daemon binary: ${DAEMON_BIN}`);
@@ -165,6 +272,12 @@ test('patched electron module intercepts Batch 1-3 Class-A APIs (including cross
     assert.equal(inst1.active_version, '1.0.0');
     const inst2 = await electron.pluginInstaller.install(makeSignedPkg('1.1.0', 'export const v=2;'));
     assert.equal(inst2.active_version, '1.1.0');
+    const retry = await electron.pluginInstaller.install(makeSignedPkg('1.1.0', 'export const v=2;'));
+    assert.equal(retry.previous_version, '1.0.0');
+    await assert.rejects(
+      electron.pluginInstaller.install(makeSignedPkg('1.1.0', 'export const v=99;')),
+      /INTEGRITY_MISMATCH/
+    );
     const rolled = await electron.pluginInstaller.rollback('@dsh/plugin-feishu');
     assert.equal(rolled.active_version, '1.0.0');
 
@@ -178,7 +291,24 @@ test('patched electron module intercepts Batch 1-3 Class-A APIs (including cross
     assert.equal(caps.sources.length, 1);
 
     await client.shutdown();
+    const resumed = new CordisDaemonClient({ binaryPath: DAEMON_BIN, loadPlanPath });
+    try {
+      const installer = createPatchedElectronModule(resumed).pluginInstaller;
+      const status = await installer.listInstalled();
+      assert.equal(status.plugins.length, 1);
+      assert.equal(status.plugins[0].active_version, '1.0.0');
+      assert.equal(status.plugins[0].previous_version, '1.1.0');
+      const restored = await installer.rollback('@dsh/plugin-feishu');
+      assert.equal(restored.active_version, '1.1.0');
+      assert.equal(readFileSync(path.join(restored.active_path, 'index.mjs'), 'utf8'), 'export const v=2;');
+    } finally {
+      await resumed.shutdown();
+    }
   } finally {
-    rmSync(outDir, { recursive: true, force: true });
+    try {
+      await client.shutdown();
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   }
 });

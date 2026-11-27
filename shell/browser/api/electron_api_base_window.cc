@@ -15,6 +15,7 @@
 
 #include "base/task/single_thread_task_runner.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "electron/buildflags/buildflags.h"
 #include "gin/dictionary.h"
 #include "shell/browser/api/electron_api_menu.h"
 #include "shell/browser/api/electron_api_view.h"
@@ -1203,9 +1204,11 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
       .SetMethod<&NativeWindow::SetHiddenInMissionControl>(
           "setHiddenInMissionControl")
 #endif
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
       .SetMethod<&NativeWindow::SetTouchBar>("_setTouchBarItems")
       .SetMethod<&NativeWindow::RefreshTouchBarItem>("_refreshTouchBarItem")
       .SetMethod<&NativeWindow::SetEscapeTouchBarItem>("_setEscapeTouchBarItem")
+#endif
 #if BUILDFLAG(IS_MAC)
       .SetMethod<&NativeWindow::SelectPreviousTab>("selectPreviousTab")
       .SetMethod<&NativeWindow::SelectNextTab>("selectNextTab")

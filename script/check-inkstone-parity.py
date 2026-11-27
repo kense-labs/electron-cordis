@@ -16,7 +16,10 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WEB_ROOT = pathlib.Path(os.environ.get("INKSTONE_WEB_ROOT") or ROOT.parent / "web").resolve()
+DEFAULT_WEB_ROOT = ROOT.parent / "web"
+if (ROOT.parent / "chrome" / "VERSION").is_file():
+    DEFAULT_WEB_ROOT = ROOT.parents[2] / "inkstone" / "web"
+WEB_ROOT = pathlib.Path(os.environ.get("INKSTONE_WEB_ROOT") or DEFAULT_WEB_ROOT).resolve()
 
 EXPECTED_PRELOAD_KEYS = {
     "desktopTransport",

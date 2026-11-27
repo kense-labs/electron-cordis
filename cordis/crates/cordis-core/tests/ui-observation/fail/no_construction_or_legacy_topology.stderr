@@ -24,6 +24,9 @@ error[E0308]: mismatched types
    |
 note: associated function defined here
   --> $RUST/core/src/convert/mod.rs
+   |
+   |     fn from(value: T) -> Self;
+   |        ^^^^
 
 error[E0599]: no method named `registry_snapshot` found for struct `cordis_core::Context` in the current scope
   --> tests/ui-observation/fail/no_construction_or_legacy_topology.rs:21:17

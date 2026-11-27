@@ -5,11 +5,14 @@
 #include "shell/browser/ui/cocoa/electron_ns_window.h"
 
 #include "base/strings/sys_string_conversions.h"
+#include "electron/buildflags/buildflags.h"
 #include "electron/mas.h"
 #include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/native_window_mac.h"
 #include "shell/browser/ui/cocoa/electron_preview_item.h"
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
 #include "shell/browser/ui/cocoa/electron_touch_bar.h"
+#endif
 #include "shell/browser/ui/cocoa/root_view_mac.h"
 #include "ui/base/cocoa/window_size_constants.h"
 
@@ -215,10 +218,11 @@ void SwizzleSwipeWithEvent(NSView* view, SEL swiz_selector) {
 }
 
 - (NSTouchBar*)makeTouchBar {
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
   if (shell_ && shell_->touch_bar())
     return [shell_->touch_bar() makeTouchBar];
-  else
-    return nil;
+#endif
+  return nil;
 }
 
 // NSWindow overrides.

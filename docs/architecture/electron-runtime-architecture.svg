@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1640" viewBox="0 0 1240 1640" role="img" aria-labelledby="electron-title electron-description">
+  <title id="electron-title">Electron 底层架构</title>
+  <desc id="electron-description">Electron 通过 ContentMain 和 ElectronMainDelegate 接入 Chromium 多进程架构。Browser 主进程运行应用 Main 脚本，由 NodeBindings 将嵌入式 Node.js 的 libuv 事件循环接入 Chromium 消息循环。沙箱 Renderer 中的页面通过 contextBridge 调用隔离的 Preload API，经 Electron C++ 和 Mojo 进入 Main。Renderer 的合成帧交给 Viz，Network Service 和 Electron NodeService 由服务进程承载。Cordis Daemon 通过 Main 的可选客户端接入。</desc>
+  <metadata>Electron Cordis checkout. Entry and process clients: shell/app. Browser bootstrap: shell/browser and shell/common/node_bindings.cc. Renderer and IPC: shell/renderer and shell/common/api/api.mojom. Chromium: src/content and src/components/viz. Palette and layout follow ../inkstone/docs/architecture/inkstone-architecture.svg.</metadata>
+  <defs>
+    <marker id="arrow-control" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#141413" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-data" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#4E60FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: Menlo, "SFMono-Regular", Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace; font-weight: 400; fill: #141413; }
+      .title { font-size: 36px; font-weight: 500; }
+      .subtitle { font-size: 19px; }
+      .section { font-size: 20px; fill: #FDFCF9; }
+      .section-meta { font-size: 15px; fill: #FDFCF9; text-anchor: end; }
+      .node-title { font-size: 18px; font-weight: 500; text-anchor: middle; }
+      .small-title { font-size: 16px; font-weight: 500; text-anchor: middle; }
+      .body { font-size: 15px; text-anchor: middle; }
+      .small-body { font-size: 14px; text-anchor: middle; }
+      .label { font-size: 14px; fill: #6C675F; }
+      .label-end { font-size: 14px; fill: #6C675F; text-anchor: end; }
+      .blue-text { fill: #3747CB; }
+      .panel { fill: #FDFCF9; stroke: #141413; stroke-width: 1; }
+      .blue-panel { fill: #FDFCF9; stroke: #4E60FF; stroke-width: 1.3; }
+      .card { fill: #FDFCF9; stroke: #DCD6C8; stroke-width: 1; }
+      .stripe { fill: #EDE9DF; }
+      .ink-fill { fill: #141413; }
+      .blue-fill { fill: #4E60FF; }
+      .control { fill: none; stroke: #141413; stroke-width: 1.5; stroke-linejoin: round; }
+      .data { fill: none; stroke: #4E60FF; stroke-width: 1.7; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1240" height="1640" rx="14" fill="#F8F6F0"/>
+  <g id="startup">
+    <text class="title" x="90" y="66">Electron 底层架构</text>
+    <text class="label-end" x="1150" y="63">当前源码 · 桌面默认路径</text>
+    <text class="subtitle" x="90" y="104">Chromium 多进程 · Electron 原生绑定 · 嵌入式 Node.js</text>
+    <rect class="panel" x="90" y="143" width="310" height="66" rx="6"/>
+    <text class="node-title" x="245" y="170.5">系统启动可执行文件</text>
+    <text class="body" x="245" y="193.5">Electron 入口 · shell/app</text>
+    <rect class="panel" x="465" y="143" width="310" height="66" rx="6"/>
+    <text class="node-title" x="620" y="170.5">Chromium ContentMain</text>
+    <text class="body" x="620" y="193.5">读取进程类型 · 进入对应主函数</text>
+    <rect class="panel" x="840" y="143" width="310" height="66" rx="6"/>
+    <text class="node-title" x="995" y="170.5">ElectronMainDelegate</text>
+    <text class="body" x="995" y="193.5">注册各进程的 ContentClient</text>
+    <path class="control" d="M400 176H465" marker-end="url(#arrow-control)"/>
+    <path class="control" d="M775 176H840" marker-end="url(#arrow-control)"/>
+    <path class="control" d="M995 209V259" marker-end="url(#arrow-control)"/>
+  </g>
+
+  <g id="browser">
+    <rect class="blue-panel" x="90" y="259" width="1060" height="267" rx="8"/>
+    <path class="blue-fill" d="M98 259H1142Q1150 259 1150 267V305H90V267Q90 259 98 259Z"/>
+    <text class="section" x="110" y="289">Browser · 主进程</text>
+    <text class="section-meta" x="1130" y="288">单个 Browser 进程 · 应用入口</text>
+    <rect class="card" x="110" y="325" width="320" height="76" rx="6"/>
+    <text class="node-title" x="270" y="357.5">Node.js · V8 · libuv</text>
+    <text class="small-body" x="270" y="380.5">NodeBindings 接入 Chromium 消息循环</text>
+    <rect class="card" x="460" y="325" width="320" height="76" rx="6"/>
+    <text class="node-title" x="620" y="357.5">应用 Main 脚本</text>
+    <text class="body" x="620" y="380.5">app · BrowserWindow · ipcMain</text>
+    <rect class="card" x="810" y="325" width="320" height="76" rx="6"/>
+    <text class="node-title" x="970" y="357.5">Electron Shell · C++</text>
+    <text class="body" x="970" y="380.5">原生桌面 API · gin / V8 绑定</text>
+    <path class="control" d="M430 363H460" marker-end="url(#arrow-control)"/>
+    <path class="data" d="M780 363H810" marker-end="url(#arrow-data)"/>
+    <rect class="panel" x="110" y="425" width="1020" height="78" rx="6"/>
+    <text class="node-title" x="620" y="458.5">Chromium Content · Browser</text>
+    <text class="body" x="620" y="481.5">WebContents / FrameTree · BrowserContext / StoragePartition · 子进程管理</text>
+    <path class="data" d="M970 401V425" marker-end="url(#arrow-data)"/>
+  </g>
+
+  <g id="child-processes">
+    <path class="control" d="M328 526V598" marker-end="url(#arrow-control)"/>
+    <path class="control" d="M708 526V598" marker-end="url(#arrow-control)"/>
+    <path class="control" d="M1000 526V598" marker-end="url(#arrow-control)"/>
+    <text class="label" x="344" y="566">页面导航与进程分配</text>
+    <text class="label" x="724" y="566">GPU 进程与通道</text>
+    <text class="label" x="1016" y="566">服务按需启动</text>
+  </g>
+
+  <g id="renderer">
+    <rect class="panel" x="90" y="598" width="476" height="372" rx="8"/>
+    <path class="ink-fill" d="M98 598H558Q566 598 566 606V644H90V606Q90 598 98 598Z"/>
+    <text class="section" x="110" y="628">Renderer · 渲染进程</text>
+    <text class="section-meta" x="546" y="627">可有多个</text>
+    <rect class="card" x="110" y="666" width="201" height="76" rx="6"/>
+    <text class="small-title" x="210.5" y="698.5">页面世界</text>
+    <text class="body" x="210.5" y="721.5">DOM · Web API</text>
+    <rect class="card" x="337" y="666" width="209" height="76" rx="6"/>
+    <text class="small-title" x="441.5" y="698.5">Preload 隔离世界</text>
+    <text class="body" x="441.5" y="721.5">受限 Electron 绑定</text>
+    <path class="data" d="M311 704H337" marker-end="url(#arrow-data)"/>
+    <rect class="stripe" x="110" y="761" width="436" height="34" rx="4"/>
+    <text class="small-body" x="328" y="783">contextBridge · 暴露窄接口</text>
+    <rect class="panel" x="110" y="813" width="436" height="106" rx="6"/>
+    <text class="node-title" x="328" y="850">Blink / V8 与合成</text>
+    <text class="body" x="328" y="873">DOM → 样式 / 布局 → 绘制</text>
+    <text class="body" x="328" y="894">cc 合成帧 → Viz</text>
+    <rect class="stripe" x="110" y="933" width="436" height="24" rx="4"/>
+    <text class="small-body" x="328" y="950">默认启用沙箱和 contextIsolation</text>
+  </g>
+
+  <g id="gpu">
+    <rect class="panel" x="586" y="598" width="244" height="372" rx="8"/>
+    <path class="ink-fill" d="M594 598H822Q830 598 830 606V644H586V606Q586 598 594 598Z"/>
+    <text class="section" x="606" y="628">GPU · 合成与显示</text>
+    <rect class="card" x="606" y="666" width="204" height="124" rx="6"/>
+    <text class="node-title" x="708" y="712">Viz</text>
+    <text class="small-body" x="708" y="735">接收多个 FrameSink</text>
+    <text class="small-body" x="708" y="756">聚合帧并输出显示</text>
+    <rect class="panel" x="606" y="813" width="204" height="106" rx="6"/>
+    <text class="small-title" x="708" y="850">图形后端</text>
+    <text class="small-body" x="708" y="873">Skia / ANGLE 等</text>
+    <text class="small-body" x="708" y="894">系统图形接口</text>
+    <path class="data" d="M566 873H576V728H586" marker-end="url(#arrow-data)"/>
+    <text class="small-body" x="708" y="950">后端由平台与配置决定</text>
+  </g>
+
+  <g id="utility">
+    <rect class="panel" x="850" y="598" width="300" height="372" rx="8"/>
+    <path class="ink-fill" d="M858 598H1142Q1150 598 1150 606V644H850V606Q850 598 858 598Z"/>
+    <text class="section" x="870" y="628">Utility · 服务进程</text>
+    <rect class="card" x="870" y="666" width="260" height="124" rx="6"/>
+    <text class="small-title" x="1000" y="712">Chromium 服务</text>
+    <text class="small-body" x="1000" y="735">Network Service · Audio 等</text>
+    <text class="small-body" x="1000" y="756">进程位置取决于配置</text>
+    <rect class="panel" x="870" y="813" width="260" height="106" rx="6"/>
+    <text class="small-title" x="1000" y="850">Electron NodeService</text>
+    <text class="small-body" x="1000" y="873">utilityProcess.fork()</text>
+    <text class="small-body" x="1000" y="894">独立 Node.js · MessagePort</text>
+    <text class="small-body" x="1000" y="950">服务由 Chromium 托管</text>
+  </g>
+
+  <g id="ipc">
+    <rect class="panel" x="90" y="1020" width="1060" height="178" rx="8"/>
+    <path class="ink-fill" d="M98 1020H1142Q1150 1020 1150 1028V1066H90V1028Q90 1020 98 1020Z"/>
+    <text class="section" x="110" y="1050">Electron IPC · 页面请求如何到达 Main</text>
+    <text class="section-meta" x="1130" y="1049">以 invoke / handle 为例</text>
+    <rect class="card" x="110" y="1083" width="238" height="63" rx="6"/>
+    <text class="small-title" x="229" y="1109">页面 API</text>
+    <text class="small-body" x="229" y="1132">调用受限桥接方法</text>
+    <rect class="card" x="371" y="1083" width="238" height="63" rx="6"/>
+    <text class="small-title" x="490" y="1109">Preload</text>
+    <text class="small-body" x="490" y="1132">ipcRenderer.invoke()</text>
+    <rect class="card" x="632" y="1083" width="238" height="63" rx="6"/>
+    <text class="small-title" x="751" y="1109">C++ / Mojo</text>
+    <text class="small-body" x="751" y="1132">ElectronApiIPC::Invoke</text>
+    <rect class="card" x="892" y="1083" width="238" height="63" rx="6"/>
+    <text class="small-title" x="1011" y="1109">Main</text>
+    <text class="small-body" x="1011" y="1132">ipcMain.handle()</text>
+    <path class="data" d="M348 1114H371" marker-end="url(#arrow-data)"/>
+    <path class="data" d="M609 1114H632" marker-end="url(#arrow-data)"/>
+    <path class="data" d="M870 1114H892" marker-end="url(#arrow-data)"/>
+    <rect class="stripe" x="110" y="1158" width="1020" height="27" rx="4"/>
+    <text class="small-body" x="620" y="1177">响应以 Promise 返回 · 业务处理器校验来源与参数</text>
+  </g>
+
+  <g id="cordis">
+    <rect class="panel" x="90" y="1248" width="1060" height="141" rx="8"/>
+    <path class="ink-fill" d="M98 1248H1142Q1150 1248 1150 1256V1294H90V1256Q90 1248 98 1248Z"/>
+    <text class="section" x="110" y="1278">Electron Cordis 接入边界</text>
+    <text class="section-meta" x="1130" y="1277">应用显式接入</text>
+    <rect class="card" x="110" y="1312" width="455" height="58" rx="6"/>
+    <text class="small-title" x="337.5" y="1335.5">Main · 可选 Cordis JS 客户端</text>
+    <text class="small-body" x="337.5" y="1358.5">保留原生 Electron 导出与同步 API</text>
+    <rect class="card" x="675" y="1312" width="455" height="58" rx="6"/>
+    <text class="small-title" x="902.5" y="1335.5">独立 Cordis Daemon</text>
+    <text class="small-body" x="902.5" y="1358.5">本地 JSON-RPC · 按 Profile 加载 Rust 插件</text>
+    <path class="data" d="M565 1348H675" marker-end="url(#arrow-data)"/>
+    <text class="small-body blue-text" x="620" y="1335">Unix Socket</text>
+  </g>
+
+  <g id="build">
+    <rect class="panel" x="90" y="1439" width="1060" height="134" rx="8"/>
+    <path class="ink-fill" d="M98 1439H1142Q1150 1439 1150 1447V1485H90V1447Q90 1439 98 1439Z"/>
+    <text class="section" x="110" y="1469">构建与模块边界</text>
+    <text class="section-meta" x="1130" y="1468">GN · js2c</text>
+    <rect class="card" x="110" y="1498" width="500" height="61" rx="6"/>
+    <text class="small-title" x="360" y="1523">默认桌面构建</text>
+    <text class="small-body" x="360" y="1546">Chromium + Node.js + Electron Shell / 内置 JS</text>
+    <rect class="card" x="630" y="1498" width="500" height="61" rx="6"/>
+    <text class="small-title" x="880" y="1523">Electron Lite 显式启用</text>
+    <text class="small-body" x="880" y="1546">Profile → GN 条件源码、C++ 绑定、JS 导出</text>
+  </g>
+
+  <g id="legend">
+    <path class="control" d="M110 1608H148" marker-end="url(#arrow-control)"/>
+    <text class="label" x="162" y="1613">启动 / 调度</text>
+    <path class="data" d="M311 1608H349" marker-end="url(#arrow-data)"/>
+    <text class="label" x="363" y="1613">接口调用 / 帧数据</text>
+  </g>
+
+</svg>

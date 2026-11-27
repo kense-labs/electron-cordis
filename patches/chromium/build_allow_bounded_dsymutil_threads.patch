@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Electron Cordis <electron-cordis@localhost>
+Date: Fri, 27 Nov 2026 00:00:00 +0000
+Subject: build: bound dsymutil threads
+
+Expose the thread limit of the classic DWARF linker. Its single-threaded
+mode releases analysis data for each object before proceeding to the
+next, reducing peak memory for large Mach-O targets.
+
+diff --git a/build/config/apple/symbols.gni b/build/config/apple/symbols.gni
+index 3682abfd2e..f74a84f8f0 100644
+--- a/build/config/apple/symbols.gni
++++ b/build/config/apple/symbols.gni
+@@ -16,6 +16,10 @@ declare_args() {
+   # generated.
+   enable_dsyms = is_official_build || using_sanitizer
+ 
++  # One thread lets the classic linker release analysis data after each
++  # object. Zero leaves thread selection to dsymutil.
++  dsymutil_threads = 0
++
+   # Strip symbols from linked targets by default. If this is enabled, the
+   # //build/config/apple:strip_all config will be applied to all linked targets.
+   # If custom stripping parameters are required, remove that config from a
+diff --git a/build/toolchain/apple/linker_driver.py b/build/toolchain/apple/linker_driver.py
+index 12ba5068b5..33d826f5a3 100755
+--- a/build/toolchain/apple/linker_driver.py
++++ b/build/toolchain/apple/linker_driver.py
+@@ -60,6 +60,9 @@ LINKER_DRIVER_COMPILER_ARG_PREFIX = '-Wcrl,driver,'
+ #    Sets the path to the dsymutil to run with -Wcrl,dsym, in which case
+ #    `xcrun` is not used to invoke it.
+ #
++# -Wcrl,dsymthreads,<threads>
++#    Passes an explicit thread limit to dsymutil.
++#
+ # -Wcrl,unstripped,<unstripped_path_prefix>
+ #    After invoking the linker, and before strip, this will save a copy of
+ #    the unstripped linker output in the directory unstripped_path_prefix.
+@@ -102,6 +105,7 @@ class LinkerDriver(object):
+             ('object_path_lto', self.prepare_object_path_lto),
+             ('installnametoolpath,', self.set_install_name_tool_path),
+             ('dsymutilpath,', self.set_dsymutil_path),
++            ('dsymthreads,', self.set_dsymutil_threads),
+             ('strippath,', self.set_strip_path),
+             ('otoolpath,', self.set_otool_path),
+             ('nmpath,', self.set_nm_path),
+@@ -125,6 +129,7 @@ class LinkerDriver(object):
+         self._nm_cmd = ['xcrun', 'nm']
+         self._install_name_tool_cmd = ['xcrun', 'install_name_tool']
+         self._dsymutil_cmd = ['xcrun', 'dsymutil']
++        self._dsymutil_thread_args = []
+         self._strip_cmd = ['xcrun', 'strip']
+ 
+         # The linker output file, lazily computed in self._get_linker_output().
+@@ -344,6 +349,7 @@ class LinkerDriver(object):
+         dsymutil_env['PATH'] = ':'.join(tools_paths)
+         subprocess.check_call(
+             self._dsymutil_cmd
++            + self._dsymutil_thread_args
+             + [
+                 # TODO(crbug.com/532150826): Switch to `--linker parallel` when
+                 # we figure out how to prevent memory/thread explosion.
+@@ -372,6 +378,9 @@ class LinkerDriver(object):
+         """
+         self._dsymutil_cmd = [dsymutil_path]
+ 
++    def set_dsymutil_threads(self, threads):
++        self._dsymutil_thread_args = ['--num-threads', threads]
++
+     def run_save_unstripped(self, unstripped_path_prefix):
+         """Linker driver action for -Wcrl,unstripped,<unstripped_path_prefix>.
+         Copies the linker output to |unstripped_path_prefix| before stripping.
+diff --git a/build/toolchain/apple/toolchain.gni b/build/toolchain/apple/toolchain.gni
+index 4d11300004..c496e61912 100644
+--- a/build/toolchain/apple/toolchain.gni
++++ b/build/toolchain/apple/toolchain.gni
+@@ -239,6 +239,10 @@ template("single_apple_toolchain") {
+       dsym_switch += "-Wcrl,dsymutilpath," +
+                      rebase_path("//tools/clang/dsymutil/bin/dsymutil",
+                                  root_build_dir) + " "
++      assert(dsymutil_threads >= 0, "dsymutil thread count must be nonnegative")
++      if (dsymutil_threads > 0) {
++        dsym_switch += "-Wcrl,dsymthreads,$dsymutil_threads "
++      }
+ 
+       # All the toolchains are defined in the context of the default toolchain,
+       # this means that the global variable `current_cpu` is not correct, it

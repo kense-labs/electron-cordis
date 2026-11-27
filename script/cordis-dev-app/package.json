@@ -1,0 +1,5 @@
+{
+  "name": "electron-cordis-dev",
+  "private": true,
+  "main": "main.mjs"
+}

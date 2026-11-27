@@ -1,5 +1,18 @@
 declare const BUILDFLAG: (flag: boolean) => boolean;
 
+declare const CORDIS_HAS_BROWSER_VIEW: boolean;
+declare const CORDIS_HAS_CONTENT_TRACING: boolean;
+declare const CORDIS_HAS_ELECTRON_NET: boolean;
+declare const CORDIS_HAS_IN_APP_PURCHASE: boolean;
+declare const CORDIS_HAS_NET_LOG: boolean;
+declare const CORDIS_HAS_PUSH_NOTIFICATIONS: boolean;
+declare const CORDIS_HAS_SERVICE_WORKER_MAIN: boolean;
+declare const CORDIS_HAS_SHARED_TEXTURE: boolean;
+declare const CORDIS_HAS_SHARE_MENU: boolean;
+declare const CORDIS_HAS_TOUCH_BAR: boolean;
+declare const CORDIS_KEEP_LEGACY_CLIPBOARD: boolean;
+declare const CORDIS_KEEP_LEGACY_SAFE_STORAGE: boolean;
+
 declare namespace NodeJS {
   interface ModuleInternal extends NodeJS.Module {
     new (id: string, parent?: NodeJS.Module | null): NodeJS.Module;

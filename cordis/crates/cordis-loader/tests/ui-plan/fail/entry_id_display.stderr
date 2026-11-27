@@ -5,4 +5,4 @@ error[E0277]: `EntryId` doesn't implement `std::fmt::Display`
   |                      ^^^^ `EntryId` cannot be formatted with the default formatter
   |
   = help: the trait `std::fmt::Display` is not implemented for `EntryId`
-  = note: in format strings you may be able to use `{:?}` (or `{:#?}` for pretty-print) instead
+  = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead

@@ -1,8 +1,26 @@
-# `electron-cordis` 架构设计：书生·端砚（Inkstone）APP 底座插件化轻量化无缝平替方案
+# Electron Cordis 架构设计
 
-> **目标**：基于 `cordis-rs` v3 构建可独立发布的跨平台桌面和无头运行时，支持 DeepSeek Harness（`dsh`）插件和端砚 Electron 兼容能力。
+首要交付是可在同版本、同平台和同架构下直接替换官方 Electron 的桌面运行时。既有应用沿用原有代码、模块入口、启动参数和原生插件。默认发行版同时以轻量、插件化和高性能为目标，由同一份候选产物接受兼容性、体积与性能验收。
+
+## 目标整体架构
+
+[![Electron Cordis 通用替代架构，包含兼容入口、内置模块提供器、Chromium 和 Node.js 底座、优化与验收](./electron-cordis-replacement.png)](./electron-cordis-replacement.svg)
+
+[SVG 矢量原图](./electron-cordis-replacement.svg) · [工程里程碑](./development-plan.md)
+
+## 当前整体架构
 
 Electron Cordis 和 KRun 各自构建、启动和发布。Electron Cordis 提供可显式开启的协议监听端点，调用方可在独立的隔离环境中连接。需要微虚拟机、Wasm 或 OS 沙箱的插件由外部隔离环境负责；内置宿主进程只适用于受信任的本地执行。已生成的内嵌 KRun LoadPlan 需要用更新后的 profile 重新生成。
+
+[![Electron Cordis 整体架构，包含按 Profile 构建、Supervisor、Electron 桌面进程、Cordis 微内核和外部调用方](./electron-cordis-architecture.png)](./electron-cordis-architecture.svg)
+
+[SVG 矢量原图](./electron-cordis-architecture.svg) · [构建与发布验收](./development-plan.md)
+
+### Electron 底层架构
+
+[![Electron 底层架构，包含 Chromium 进程调度、Node.js 嵌入、Blink 与 Viz 合成、Mojo IPC 和 Cordis 接入边界](./electron-runtime-architecture.png)](./electron-runtime-architecture.svg)
+
+[SVG 矢量原图](./electron-runtime-architecture.svg) · [Electron 进程模型](../tutorial/process-model.md) · [Mojo IPC 定义](../../shell/common/api/api.mojom)
 
 ## 1. 现状诊断与 6 条不可违背红线
 
@@ -19,63 +37,36 @@ Electron Cordis 和 KRun 各自构建、启动和发布。Electron Cordis 提供
    - **Renderer 零 KRun / 零微内核泄漏**：Renderer 永远不可见 `KRUN_*`、`vsock`、`ServiceRealm` 或宿主绝对路径。
    - **安全 FailClosed 原则**：缺虚拟化驱动、未知插件/契约摘要不匹配或越权声明一律拒绝，禁止静默降级隔离等级。
 
-## 2. 目标总体架构
+## 2. 同版本替换契约
 
-```mermaid
-flowchart TB
-    Prof["统一声明: profiles/*.cordis.json\n(驱动 Build-Time 裁剪 + Run-Time LoadPlan)"]
+| 范围 | 默认桌面发行版要求 |
+| --- | --- |
+| 应用与分发 | 启动原有 Electron 应用，保留 `electron` 模块入口、CLI、发行物布局和打包工具接入。保留公开导出、属性描述符、同步和异步语义、异常及事件顺序。 |
+| 原生 ABI | 与声明兼容的上游版本匹配 Electron、Chromium、Node、V8、原生模块 ABI、平台和架构。用同一份应用和原生扩展对照运行。 |
+| 进程与数据 | 保留 Browser / Renderer / Utility、沙箱、Preload、IPC、Session、系统权限、存储、签名和升级行为。 |
+| 内部插件化 | 公开 API 后面由模块注册表管理提供器、依赖和生命周期。兼容性所需的提供器随包交付并支持离线初始化。同步桌面能力保留进程内调用。可延迟能力保留同步可见的导出，并按契约初始化。需要独立执行的 Cordis 服务由应用显式接入。 |
+| 体积与性能 | 默认桌面包采用平台定向打包、资源去重、延迟初始化和同版 Release 优化。对照测量下载体积、安装体积、首次交互、首次能力调用、峰值内存和 CPU。停用公开模块的 Profile 单独分发和命名。 |
 
-    subgraph L0["L0 微内核与控制面 (cordis-rs v3 / Rust)"]
-        Loader["cordis-loader (LoadPlan 准备期校验防火墙)"]
-        Kernel["cordis-core (FiberHandle / InjectSpec / ServiceRealm / Scope / Intercept)"]
-        Gate["双咽喉拦截管线 (Around / Mapper / Observer)\n• Tool & Capability Gateway\n• LLM / Model Proxy Gateway"]
-        Loader --> Kernel --> Gate
-    end
-
-    subgraph L1["L1 独立的调用方执行环境"]
-        Exec["调用方管理进程与隔离策略"]
-    end
-
-    subgraph L2["L2 端砚桌面宿主与平替适配层"]
-        Compat["@dsh/electron-compat 垫片"]
-        WebSurf["@dsh/electron-web-surface (精简 Electron-Lite 壳)"]
-        OSCaps["A类 Rust DSH 插件群 (脱离 Chromium)\nsafe-storage / clipboard / dialog / tray-menu / notification\ndesktop-capture / os-integration / os-shell (Plane A) / updater"]
-        Renderer["端砚 React Renderer + 固定 4 对象 Preload (零改动)"]
-        Renderer <--> WebSurf
-        Compat --> OSCaps & WebSurf
-    end
-
-    subgraph L3["L3 DSH 插件联邦与 Harness 协议"]
-        DshHost["Shadow Fiber 联邦宿主 (@deepseek-ai/dsh-* / Wasm / Rust)"]
-        Proj["可配置监听端点\n• MCP\n• Host Native Contract / inkstone.tools.v1\n• ACP / dsh-sdk-protocol\n• LLM Gateway"]
-        Harnesses["外部 Harness\nInkstone Harness | DSH | MCP/ACP 客户端"]
-        Proj <--> Harnesses
-    end
-
-    Prof --> Loader
-    Exec --> Harnesses
-    Kernel <--> WebSurf & OSCaps & DshHost
-    Gate <-->|"四通道分离 (Control / ACP / Tool RPC / Byte Stream)"| Proj
-```
+对照流程先运行 `just verify-desktop <上游可执行文件> <候选可执行文件> [原生插件.node]`，比较版本、主进程 CJS/ESM 导出，以及同步 NativeImage、Session 隔离、Renderer 默认隔离和 Preload IPC。完整门槛还包括上游回归、相同应用离线安装升级、真实原生插件和性能矩阵。端砚采用 43.2.0（ABI 148），当前工程主线为 47 nightly（ABI 154）。 [开发计划](./development-plan.md)
 
 ## 3. 已锁定的默认架构选型（P0–P1）
 
-1. **纯 Rust + Node/TS（零 Go 依赖）**：Rust 微内核与宿主能力插件、精简 Chromium UI 和 TypeScript/Node 协议客户端。
-2. **PDF 预览双轨策略**：P0 平替期在 `inkstone-desktop` Profile 中以可选 GN 插件 `@dsh/electron-pdf-viewer` 保留 Chromium PDF 预览（确保前端零改动），在 `inkstone-headless` / 极简 Profile 中默认关闭；中期可与 `../core` 已有的 `@embedpdf/pdfium` / PDF.js 方案合流，彻底关闭 `enable_pdf` 与 `enable_electron_extensions`。
-3. **运行形态**：`cordis-daemon` 作为独立本地守护进程运行。Rust Supervisor 按需拉起 UI，Headless 发行包省略 Chromium。
+1. **Chromium 桌面底座与 Rust 插件运行时**：Chromium 和 Electron 保留 C++ / Node.js 运行环境，Cordis 提供 Rust 微内核和 TypeScript/Node 协议客户端。
+2. **PDF 预览**：兼容桌面发行版保留上游 PDF、打印和扩展行为。应用专用 Lite Profile 可单独配置相关能力。
+3. **运行形态**：原版应用直接启动 Electron 入口。显式接入 Cordis 的应用可由 Rust Supervisor 编排 UI 和独立的 `cordis-daemon`。Headless 发行包省略 Chromium。
 4. **独立构建**：`cordis-core`、`cordis-loader`、`cordis-timer`（MIT）维护在 `cordis/crates/`。单独检出本仓库即可运行 `cargo build --locked --workspace --manifest-path cordis/Cargo.toml`。
 
 ## 4. 能力分类与按需构建（A / B / C）
 
-- **A 类（脱离 Chromium 的 OS 能力 → 纯 Rust DSH 插件）**：`@dsh/cap-safe-storage`、`@dsh/cap-clipboard`、`@dsh/cap-dialog`、`@dsh/cap-tray-menu`、`@dsh/cap-notification`、`@dsh/cap-desktop-capture`、`@dsh/cap-os-integration`、`@dsh/cap-os-shell`（Plane A S1–S6）、`@dsh/cap-updater`、`@dsh/runtime-node-host`。
-- **B 类（Chromium 渲染内核 → GN 条件编译插件）**：必选最小基座 `@dsh/electron-web-surface`（7 组 Browser 绑定 + 3 组 Renderer/Preload 绑定）+ 可选 GN 插件（`@dsh/electron-pdf-viewer`、`@dsh/electron-net`、`@dsh/electron-printing`、`@dsh/electron-extensions`、`@dsh/electron-spellcheck`）。
-- **C 类（默认裁除）**：`BrowserView`、`TouchBar`、`inAppPurchase`、`pushNotifications`、`contentTracing`、`netLog`、`ShareMenu`、`ServiceWorkerMain`、`sharedTexture`、`enable_prompt_api`。
+- **A 类（独立的 OS 能力）**：兼容桌面版通过进程内提供器保留原版剪贴板、安全存储和对话框等 API。显式接入 Cordis 的应用可以调用 Rust DSH 能力，例如 `@dsh/cap-safe-storage`、`@dsh/cap-clipboard` 和 `@dsh/cap-dialog`。替换内置提供器须逐项验证同步语义、错误、权限及原生对象行为。
+- **B 类（依赖 Chromium 的能力）**：默认桌面版随包提供 PDF、网络、打印、扩展和拼写检查。可以评估各能力的初始化时机，并由专用 Lite Profile 的 GN 开关选择编译能力集。
+- **C 类（显式 Lite Profile 可裁剪）**：`BrowserView`、`TouchBar`、`inAppPurchase`、`pushNotifications`、`contentTracing`、`netLog`、`ShareMenu`、`ServiceWorkerMain`、`sharedTexture`、`enable_prompt_api`。
 
 ## 5. 五阶段无缝平替路线图
 
 - **P0**：落地 `buildflags/cordis_plugins.gni` 与 Profile → `args.gn` 生成器，建立 `inkstone-desktop` / `inkstone-headless` / `dsh-studio` 三套标准 Profile，验证 `electronDist` 平替。
 - **P1**：在 `cordis/` 建立独立的 `cordis-rs` v3 插件化微内核，落实 `ServiceRealm`（`HostRealm` / `UiRealm` / `CoreRealm` / `UntrustedPluginRealm`）、两阶段延迟收敛（`UiReadyService` + `AuthSessionService`）、`update()` vs `era_swap()`。
-- **P2**：分批下沉 A 类 OS 能力为 Rust DSH 插件，提供 `@dsh/electron-compat` 垫片实现端砚业务零改动穿透。
+- **P2**：为默认桌面版的内置能力整理提供器和依赖，优先迁移无需改变初始化时序的能力。逐项验证上游 API 行为并测量基线差异。通过 `@dsh/electron-compat` 支持应用显式接入 Rust DSH 插件。
 - **P3**：实现 `Cordis-over-Wire`、`Shadow Fiber`、`@dsh/cordis-bridge` 及 MCP / `inkstone.tools.v1`（对接 `../core/contracts/native`）/ ACP / LLM Gateway 投影插件，使 `inkstone-harness` 及 KRun 内任意异构 Harness 透明复用全量 DSH 插件。
 - **P4**：渐进将 `../web/src/main/features/*` 迁出 `create-features.ts` 成为原生 DSH 插件，交付真正零 Chromium 的 `inkstone-headless` 发行包。
 

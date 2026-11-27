@@ -5,18 +5,28 @@ export const browserModuleList: ElectronInternal.ModuleEntry[] = [
   { name: 'app', loader: () => require('./app') },
   { name: 'autoUpdater', loader: () => require('./auto-updater') },
   { name: 'BaseWindow', loader: () => require('./base-window') },
-  { name: 'BrowserView', loader: () => require('./browser-view') },
+  ...(BUILDFLAG(CORDIS_HAS_BROWSER_VIEW) ? [
+    { name: 'BrowserView', loader: () => require('./browser-view') }
+  ] : []),
   { name: 'BrowserWindow', loader: () => require('./browser-window') },
-  { name: 'clipboard', loader: () => require('./clipboard') },
-  { name: 'ClipboardItem', loader: () => require('./clipboard-item') },
-  { name: 'contentTracing', loader: () => require('./content-tracing') },
+  ...(BUILDFLAG(CORDIS_KEEP_LEGACY_CLIPBOARD) ? [
+    { name: 'clipboard', loader: () => require('./clipboard') }
+  ] : []),
+  ...(BUILDFLAG(CORDIS_KEEP_LEGACY_CLIPBOARD) ? [
+    { name: 'ClipboardItem', loader: () => require('./clipboard-item') }
+  ] : []),
+  ...(BUILDFLAG(CORDIS_HAS_CONTENT_TRACING) ? [
+    { name: 'contentTracing', loader: () => require('./content-tracing') }
+  ] : []),
   { name: 'crashReporter', loader: () => process._linkedBinding('electron_browser_crash_reporter') },
   { name: 'desktopCapturer', loader: () => require('./desktop-capturer') },
   { name: 'dialog', loader: () => require('./dialog') },
   { name: 'globalShortcut', loader: () => require('./global-shortcut') },
   { name: 'ipcMain', loader: () => require('./ipc-main') },
   { name: 'ImageView', loader: () => process._linkedBinding('electron_browser_image_view').ImageView },
-  { name: 'inAppPurchase', loader: () => process._linkedBinding('electron_browser_in_app_purchase').inAppPurchase },
+  ...(BUILDFLAG(CORDIS_HAS_IN_APP_PURCHASE) ? [
+    { name: 'inAppPurchase', loader: () => process._linkedBinding('electron_browser_in_app_purchase').inAppPurchase }
+  ] : []),
   { name: 'Menu', loader: () => require('./menu') },
   { name: 'MenuItem', loader: () => require('./menu-item') },
   {
@@ -24,21 +34,37 @@ export const browserModuleList: ElectronInternal.ModuleEntry[] = [
     loader: () => process._linkedBinding('electron_browser_message_port').MessageChannelMain
   },
   { name: 'nativeTheme', loader: () => require('./native-theme') },
-  { name: 'net', loader: () => require('./net') },
-  { name: 'netLog', loader: () => require('./net-log') },
+  ...(BUILDFLAG(CORDIS_HAS_ELECTRON_NET) ? [
+    { name: 'net', loader: () => require('./net') }
+  ] : []),
+  ...(BUILDFLAG(CORDIS_HAS_NET_LOG) ? [
+    { name: 'netLog', loader: () => require('./net-log') }
+  ] : []),
   { name: 'Notification', loader: () => process._linkedBinding('electron_browser_notification').Notification },
   { name: 'powerMonitor', loader: () => require('./power-monitor') },
   { name: 'powerSaveBlocker', loader: () => require('./power-save-blocker') },
-  { name: 'pushNotifications', loader: () => require('./push-notifications') },
+  ...(BUILDFLAG(CORDIS_HAS_PUSH_NOTIFICATIONS) ? [
+    { name: 'pushNotifications', loader: () => require('./push-notifications') }
+  ] : []),
   { name: 'protocol', loader: () => require('./protocol') },
-  { name: 'safeStorage', loader: () => require('./safe-storage') },
+  ...(BUILDFLAG(CORDIS_KEEP_LEGACY_SAFE_STORAGE) ? [
+    { name: 'safeStorage', loader: () => require('./safe-storage') }
+  ] : []),
   { name: 'screen', loader: () => require('./screen') },
-  { name: 'ServiceWorkerMain', loader: () => require('./service-worker-main') },
+  ...(BUILDFLAG(CORDIS_HAS_SERVICE_WORKER_MAIN) ? [
+    { name: 'ServiceWorkerMain', loader: () => require('./service-worker-main') }
+  ] : []),
   { name: 'session', loader: () => require('./session') },
-  { name: 'sharedTexture', loader: () => require('./shared-texture') },
-  { name: 'ShareMenu', loader: () => require('./share-menu') },
+  ...(BUILDFLAG(CORDIS_HAS_SHARED_TEXTURE) ? [
+    { name: 'sharedTexture', loader: () => require('./shared-texture') }
+  ] : []),
+  ...(BUILDFLAG(CORDIS_HAS_SHARE_MENU) ? [
+    { name: 'ShareMenu', loader: () => require('./share-menu') }
+  ] : []),
   { name: 'systemPreferences', loader: () => require('./system-preferences') },
-  { name: 'TouchBar', loader: () => require('./touch-bar') },
+  ...(BUILDFLAG(CORDIS_HAS_TOUCH_BAR) ? [
+    { name: 'TouchBar', loader: () => require('./touch-bar') }
+  ] : []),
   { name: 'Tray', loader: () => require('./tray') },
   { name: 'utilityProcess', loader: () => require('./utility-process') },
   { name: 'View', loader: () => process._linkedBinding('electron_browser_view').View },

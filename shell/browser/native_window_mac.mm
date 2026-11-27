@@ -20,6 +20,7 @@
 #include "components/remote_cocoa/browser/scoped_cg_window_id.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/desktop_media_id.h"
+#include "electron/buildflags/buildflags.h"
 #include "shell/browser/browser.h"
 #include "shell/browser/javascript_environment.h"
 #include "shell/browser/native_window_mac_remote.h"
@@ -28,7 +29,9 @@
 #include "shell/browser/ui/cocoa/electron_ns_window.h"
 #include "shell/browser/ui/cocoa/electron_ns_window_delegate.h"
 #include "shell/browser/ui/cocoa/electron_preview_item.h"
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
 #include "shell/browser/ui/cocoa/electron_touch_bar.h"
+#endif
 #include "shell/browser/ui/cocoa/root_view_mac.h"
 #include "shell/browser/ui/cocoa/window_buttons_proxy.h"
 #include "shell/browser/ui/drag_util.h"
@@ -36,6 +39,7 @@
 #include "shell/browser/window_list.h"
 #include "shell/common/gin_converters/gfx_converter.h"
 #include "shell/common/gin_helper/dictionary.h"
+#include "shell/common/gin_helper/persistent_dictionary.h"
 #include "shell/common/node_util.h"
 #include "shell/common/options_switches.h"
 #include "skia/ext/skia_utils_mac.h"
@@ -1536,21 +1540,27 @@ void NativeWindowMac::UpdateFrame() {
 
 void NativeWindowMac::SetTouchBar(
     std::vector<gin_helper::PersistentDictionary> items) {
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
   touch_bar_ = [[ElectronTouchBar alloc] initWithDelegate:window_delegate_
                                                    window:this
                                                  settings:std::move(items)];
   [window_ setTouchBar:nil];
+#endif
 }
 
 void NativeWindowMac::RefreshTouchBarItem(const std::string& item_id) {
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
   if (touch_bar_ && [window_ touchBar])
     [touch_bar_ refreshTouchBarItem:[window_ touchBar] id:item_id];
+#endif
 }
 
 void NativeWindowMac::SetEscapeTouchBarItem(
     gin_helper::PersistentDictionary item) {
+#if BUILDFLAG(CORDIS_HAS_TOUCH_BAR)
   if (touch_bar_ && [window_ touchBar])
     [touch_bar_ setEscapeTouchBarItem:item forTouchBar:[window_ touchBar]];
+#endif
 }
 
 void NativeWindowMac::SelectPreviousTab() {

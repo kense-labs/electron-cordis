@@ -13,7 +13,7 @@ declare_args() {
   electron_cordis_profile = ""
 
   # Explicit allowlist of Electron C++ capability plugins to compile/link when
-  # electron_cordis_mode = true. Any unlisted Class-A/B/C module is excluded.
+  # electron_cordis_mode = true.
   electron_cordis_plugins = []
 }
 
@@ -44,8 +44,8 @@ cordis_has_spellcheck =
     !electron_cordis_mode ||
     filter_include(electron_cordis_plugins, [ "@dsh/electron-spellcheck" ]) != []
 
-# Class-A legacy Electron C++ bindings (compiled ONLY if not yet offloaded to
-# Rust @dsh/cap-* plugins via @dsh/electron-compat):
+# Legacy Electron selectors. The build and module registries consume the
+# clipboard and safe storage flags; other APIs can adopt their selectors separately.
 cordis_keep_legacy_safe_storage =
     !electron_cordis_mode ||
     filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-safe-storage" ]) != []
@@ -77,3 +77,33 @@ cordis_keep_legacy_shell =
 cordis_keep_legacy_updater =
     !electron_cordis_mode ||
     filter_include(electron_cordis_plugins, [ "@dsh/electron-legacy-updater" ]) != []
+
+# Optional API exports. Native bindings are also gated where the API owns
+# its implementation, while shared native services remain available internally.
+cordis_has_browser_view =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-browser-view" ]) != []
+cordis_has_touch_bar =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-touch-bar" ]) != []
+cordis_has_in_app_purchase =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-in-app-purchase" ]) != []
+cordis_has_push_notifications =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-push-notifications" ]) != []
+cordis_has_content_tracing =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-content-tracing" ]) != []
+cordis_has_net_log =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-net-log" ]) != []
+cordis_has_share_menu =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-share-menu" ]) != []
+cordis_has_service_worker_main =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-service-worker-main" ]) != []
+cordis_has_shared_texture =
+    !electron_cordis_mode ||
+    filter_include(electron_cordis_plugins, [ "@dsh/electron-shared-texture" ]) != []

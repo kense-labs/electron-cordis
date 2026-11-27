@@ -26,6 +26,7 @@ import("build/npm.gni")
 import("build/templated_file.gni")
 import("build/tsc.gni")
 import("buildflags/buildflags.gni")
+import("buildflags/cordis_plugins.gni")
 import("filenames.auto.gni")
 import("filenames.gni")
 import("filenames.hunspell.gni")
@@ -142,11 +143,12 @@ if (override_electron_version != "") {
   # infinite loop.
   read_file(electron_git_ref_paths[0], "string")
 
-  # Set electron version from git tag.
-  electron_version = exec_script("script/get-git-version.py",
-                                 [],
-                                 "trim string",
-                                 electron_git_ref_paths)
+  # Resolve the version from git tags or the pinned upstream version.
+  electron_version = exec_script(
+          "script/get-git-version.py",
+          [],
+          "trim string",
+          electron_git_ref_paths + [ "build/electron-cordis-upstream-version" ])
 }
 
 if (is_mas_build) {
@@ -738,6 +740,12 @@ source_set("electron_lib") {
   }
   if (is_mac) {
     sources += filenames.lib_sources_mac
+    if (!cordis_has_touch_bar) {
+      sources -= [
+        "shell/browser/ui/cocoa/electron_touch_bar.h",
+        "shell/browser/ui/cocoa/electron_touch_bar.mm",
+      ]
+    }
   }
   if (is_posix) {
     sources += filenames.lib_sources_posix
@@ -747,6 +755,66 @@ source_set("electron_lib") {
   }
   if (!is_mac) {
     sources += filenames.lib_sources_views
+  }
+  if (!cordis_has_electron_net) {
+    sources -= [
+      "shell/browser/api/electron_api_web_socket.cc",
+      "shell/browser/api/electron_api_web_socket.h",
+    ]
+  }
+  if (!cordis_has_shared_texture) {
+    sources -= [ "shell/common/api/electron_api_shared_texture.cc" ]
+  }
+  if (cordis_keep_legacy_safe_storage) {
+    sources += [
+      "shell/browser/api/electron_api_safe_storage.cc",
+      "shell/browser/api/electron_api_safe_storage.h",
+    ]
+  }
+  if (cordis_keep_legacy_clipboard) {
+    sources += [
+      "shell/browser/api/electron_api_clipboard.cc",
+      "shell/browser/api/electron_api_clipboard.h",
+      "shell/browser/api/electron_api_clipboard_item.cc",
+      "shell/browser/api/electron_api_clipboard_item.h",
+    ]
+    if (is_mac) {
+      sources += [ "shell/browser/api/electron_api_clipboard_mac.mm" ]
+    } else if (is_win) {
+      sources += [ "shell/browser/api/electron_api_clipboard_win.cc" ]
+    }
+  }
+  if (cordis_has_content_tracing) {
+    sources += [
+      "shell/browser/api/electron_api_content_tracing.cc",
+    ]
+  }
+  if (cordis_has_in_app_purchase) {
+    sources += [
+      "shell/browser/api/electron_api_in_app_purchase.cc",
+      "shell/browser/api/electron_api_in_app_purchase.h",
+    ]
+    if (is_mac) {
+      sources += [
+        "shell/browser/mac/in_app_purchase_observer.h",
+        "shell/browser/mac/in_app_purchase_observer.mm",
+        "shell/browser/mac/in_app_purchase_product.h",
+        "shell/browser/mac/in_app_purchase_product.mm",
+        "shell/browser/mac/in_app_purchase.h",
+        "shell/browser/mac/in_app_purchase.mm",
+      ]
+    }
+  }
+  if (cordis_has_push_notifications) {
+    sources += [
+      "shell/browser/api/electron_api_push_notifications.cc",
+      "shell/browser/api/electron_api_push_notifications.h",
+    ]
+    if (is_mac) {
+      sources += [
+        "shell/browser/api/electron_api_push_notifications_mac.mm",
+      ]
+    }
   }
   if (is_debug || dcheck_always_on) {
     sources += [ "shell/common/api/electron_api_testing.cc" ]
@@ -1990,6 +2058,7 @@ template("dist_zip") {
 
   action(target_name) {
     script = "//electron/build/zip.py"
+    inputs = [ _runtime_deps_file ]
     deps = [ ":$_runtime_deps_target" ]
     if (defined(invoker.build_deps)) {
       # Ordered before the zip without contributing to its runtime deps.

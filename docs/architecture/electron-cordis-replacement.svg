@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1420" viewBox="0 0 1160 1420" role="img" aria-labelledby="replacement-title replacement-description">
+  <title id="replacement-title">Electron Cordis 通用替代架构</title>
+  <desc id="replacement-description">目标是既有 Electron 应用使用同版本 Electron Cordis 直接安装和启动。默认桌面产物保留公开 API、原生 ABI、进程模型和存储与更新行为。内部通过模块提供器管理原生同步能力和可延迟服务，应用可显式接入独立 Cordis 插件运行时。共用 Chromium 与 Node 底座。兼容、包体和性能由同版本真实产物对照验收。</desc>
+  <defs>
+    <marker id="arrow-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#141413" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#4E60FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: Menlo, "SFMono-Regular", Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace; font-weight: 400; fill: #141413; }
+      .title { font-size: 36px; font-weight: 500; }
+      .subtitle { font-size: 19px; }
+      .section { font-size: 20px; fill: #FDFCF9; }
+      .section-right { font-size: 14px; fill: #FDFCF9; text-anchor: end; }
+      .node-title { font-size: 17px; font-weight: 500; text-anchor: middle; }
+      .body { font-size: 15px; text-anchor: middle; }
+      .label { font-size: 14px; fill: #6C675F; }
+      .label-end { font-size: 14px; fill: #6C675F; text-anchor: end; }
+      .panel { fill: #FDFCF9; stroke: #141413; stroke-width: 1; }
+      .blue-panel { fill: #FDFCF9; stroke: #4E60FF; stroke-width: 1.3; }
+      .card { fill: #FDFCF9; stroke: #DCD6C8; stroke-width: 1; }
+      .stripe { fill: #EDE9DF; }
+      .ink-line { fill: none; stroke: #141413; stroke-width: 1.5; }
+      .blue-line { fill: none; stroke: #4E60FF; stroke-width: 1.7; }
+    </style>
+  </defs>
+  <rect width="1160" height="1420" rx="14" fill="#F8F6F0"/>
+  <g id="heading">
+    <text class="title" x="90" y="62">Electron Cordis</text>
+    <text class="label-end" x="1070" y="62">目标架构</text>
+    <text class="subtitle" x="90" y="101">既有 Electron 应用可直接替换的轻量桌面运行时</text>
+    <rect class="panel" x="90" y="136" width="980" height="65" rx="6"/>
+    <text class="node-title" x="580" y="162.5">既有 Electron 应用</text>
+    <text class="body" x="580" y="185.5">原有应用代码 · 原有安装与启动入口</text>
+    <path class="ink-line" d="M580 201V237" marker-end="url(#arrow-ink)"/>
+  </g>
+
+  <g id="contract">
+    <rect class="blue-panel" x="90" y="237" width="980" height="181" rx="8"/>
+    <path fill="#4E60FF" d="M98 237H1062Q1070 237 1070 245V281H90V245Q90 237 98 237Z"/>
+    <text class="section" x="110" y="266">Electron 兼容入口</text>
+    <text class="section-right" x="1050" y="266">默认桌面发行版</text>
+    <rect class="card" x="110" y="297" width="300" height="78" rx="6"/>
+    <text class="node-title" x="260" y="319">公开 API</text>
+    <text class="body" x="260" y="342">CJS / ESM · 模块与签名</text>
+    <text class="body" x="260" y="364">同步、回调及事件语义</text>
+    <rect class="card" x="430" y="297" width="300" height="78" rx="6"/>
+    <text class="node-title" x="580" y="319">同版本 ABI</text>
+    <text class="body" x="580" y="342">Electron / Chromium / Node</text>
+    <text class="body" x="580" y="364">相同平台、架构及 .node 插件</text>
+    <rect class="card" x="750" y="297" width="300" height="78" rx="6"/>
+    <text class="node-title" x="900" y="319">桌面行为</text>
+    <text class="body" x="900" y="342">窗口 · IPC · 沙箱 · Session</text>
+    <text class="body" x="900" y="364">安装、签名与更新</text>
+    <rect class="stripe" x="110" y="385" width="940" height="23" rx="4"/>
+    <text class="body" x="580" y="402">按上游版本发布，保留公开功能和离线可用性</text>
+    <path class="blue-line" d="M400 418V476" marker-end="url(#arrow-blue)"/>
+    <path class="blue-line" d="M896 418V476" marker-end="url(#arrow-blue)"/>
+    <text class="label" x="908" y="452">应用显式接入</text>
+  </g>
+
+  <g id="providers">
+    <rect class="panel" x="90" y="476" width="606" height="235" rx="8"/>
+    <path fill="#141413" d="M98 476H688Q696 476 696 484V520H90V484Q90 476 98 476Z"/>
+    <text class="section" x="110" y="505">内置模块提供器</text>
+    <text class="section-right" x="676" y="505">目标设计</text>
+    <rect class="card" x="110" y="536" width="566" height="59" rx="6"/>
+    <text class="node-title" x="393" y="559.5">模块注册表</text>
+    <text class="body" x="393" y="582.5">稳定导出 · 依赖与生命周期由内部管理</text>
+    <rect class="card" x="110" y="611" width="273" height="79" rx="6"/>
+    <text class="node-title" x="246.5" y="633.5">同步原生能力</text>
+    <text class="body" x="246.5" y="656.5">进程内调用</text>
+    <text class="body" x="246.5" y="678.5">保留 OS 行为与同步返回</text>
+    <rect class="card" x="403" y="611" width="273" height="79" rx="6"/>
+    <text class="node-title" x="539.5" y="633.5">可延迟服务</text>
+    <text class="body" x="539.5" y="656.5">公开导出提前可用</text>
+    <text class="body" x="539.5" y="678.5">按调用激活实现</text>
+  </g>
+
+  <g id="extensions">
+    <rect class="panel" x="716" y="476" width="354" height="235" rx="8"/>
+    <path fill="#141413" d="M724 476H1062Q1070 476 1070 484V520H716V484Q716 476 724 476Z"/>
+    <text class="section" x="736" y="505">独立 Cordis 服务</text>
+    <text class="section-right" x="1050" y="505">可选</text>
+    <rect class="card" x="736" y="536" width="314" height="73" rx="6"/>
+    <text class="node-title" x="893" y="566.5">Cordis 微内核</text>
+    <text class="body" x="893" y="589.5">Rust 插件 · ServiceRealm</text>
+    <rect class="card" x="736" y="620" width="314" height="70" rx="6"/>
+    <text class="node-title" x="893" y="649">隔离与协议</text>
+    <text class="body" x="893" y="672">本地 RPC · 受控插件生命周期</text>
+  </g>
+
+  <g id="base">
+    <path class="ink-line" d="M400 711V763" marker-end="url(#arrow-ink)"/>
+    <rect class="panel" x="90" y="763" width="980" height="142" rx="8"/>
+    <path fill="#141413" d="M98 763H1062Q1070 763 1070 771V807H90V771Q90 763 98 763Z"/>
+    <text class="section" x="110" y="792">Chromium / Node.js 执行底座</text>
+    <rect class="card" x="110" y="823" width="300" height="62" rx="6"/>
+    <text class="node-title" x="260" y="848">Chromium</text>
+    <text class="body" x="260" y="871">Browser / 渲染 / GPU / Utility</text>
+    <rect class="card" x="430" y="823" width="300" height="62" rx="6"/>
+    <text class="node-title" x="580" y="848">Node.js + V8</text>
+    <text class="body" x="580" y="871">原生绑定 · libuv 消息循环</text>
+    <rect class="card" x="750" y="823" width="300" height="62" rx="6"/>
+    <text class="node-title" x="900" y="848">进程与存储</text>
+    <text class="body" x="900" y="871">Preload 隔离 · Session · 平台行为</text>
+  </g>
+
+  <g id="optimization">
+    <rect class="panel" x="90" y="958" width="980" height="157" rx="8"/>
+    <path fill="#141413" d="M98 958H1062Q1070 958 1070 966V1002H90V966Q90 958 98 958Z"/>
+    <text class="section" x="110" y="987">在兼容发行版内减体积和延迟</text>
+    <rect class="card" x="110" y="1017" width="300" height="79" rx="6"/>
+    <text class="node-title" x="260" y="1039.5">减安装体积</text>
+    <text class="body" x="260" y="1062.5">去重与平台定向打包</text>
+    <text class="body" x="260" y="1084.5">保留离线运行所需资源</text>
+    <rect class="card" x="430" y="1017" width="300" height="79" rx="6"/>
+    <text class="node-title" x="580" y="1039.5">缩短关键路径</text>
+    <text class="body" x="580" y="1062.5">延迟非关键服务初始化</text>
+    <text class="body" x="580" y="1084.5">验证首次调用延迟</text>
+    <rect class="card" x="750" y="1017" width="300" height="79" rx="6"/>
+    <text class="node-title" x="900" y="1039.5">优化执行</text>
+    <text class="body" x="900" y="1062.5">Release · PGO / 链接优化</text>
+    <text class="body" x="900" y="1084.5">实测 CPU 与内存</text>
+  </g>
+
+  <g id="release">
+    <rect class="panel" x="90" y="1167" width="980" height="174" rx="8"/>
+    <path fill="#141413" d="M98 1167H1062Q1070 1167 1070 1175V1211H90V1175Q90 1167 98 1167Z"/>
+    <text class="section" x="110" y="1196">同版本发布验收</text>
+    <text class="section-right" x="1050" y="1196">上游原版 → Cordis 候选版</text>
+    <rect class="card" x="110" y="1226" width="300" height="79" rx="6"/>
+    <text class="node-title" x="260" y="1248.5">应用与原生插件</text>
+    <text class="body" x="260" y="1271.5">同一应用与同一份 .node</text>
+    <text class="body" x="260" y="1293.5">兼容回归无新增失败</text>
+    <rect class="card" x="430" y="1226" width="300" height="79" rx="6"/>
+    <text class="node-title" x="580" y="1248.5">打包与更新</text>
+    <text class="body" x="580" y="1271.5">同栈签名、离线功能</text>
+    <text class="body" x="580" y="1293.5">安装、升级、回滚</text>
+    <rect class="card" x="750" y="1226" width="300" height="79" rx="6"/>
+    <text class="node-title" x="900" y="1248.5">真实产物对照</text>
+    <text class="body" x="900" y="1271.5">安装态与下载体积</text>
+    <text class="body" x="900" y="1293.5">冷启动 P95 · 峰值内存</text>
+  </g>
+
+  <text class="body" x="580" y="1385">同一份默认桌面产物同时验收兼容、体积和性能</text>
+</svg>

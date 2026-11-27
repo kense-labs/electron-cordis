@@ -4,6 +4,11 @@ import { app, net } from 'electron/main';
 
 import { EventEmitter } from 'events';
 
+const fetchUpdate: typeof net.fetch = (...args) =>
+  BUILDFLAG(CORDIS_HAS_ELECTRON_NET)
+    ? net.fetch(...args)
+    : require('electron/main').session.defaultSession.fetch(...args);
+
 interface UpdateInfo {
   ok: boolean; // False if error encountered
   available?: boolean; // True if the update is available, false if not
@@ -138,7 +143,7 @@ class AutoUpdater extends EventEmitter implements Electron.AutoUpdater {
   private async validateMsixUrl(url: string): Promise<void> {
     try {
       // Make a HEAD request to follow redirects and get the final URL
-      const response = await net.fetch(url, {
+      const response = await fetchUpdate(url, {
         method: 'HEAD',
         headers: this.updateHeaders ? new Headers(this.updateHeaders) : undefined,
         redirect: 'follow' // Follow redirects to get the final URL
@@ -284,7 +289,7 @@ class AutoUpdater extends EventEmitter implements Electron.AutoUpdater {
       ...this.updateHeaders,
       Accept: 'application/json' // Always set Accept header, overriding any user-provided Accept
     };
-    const response = await net.fetch(url, {
+    const response = await fetchUpdate(url, {
       headers
     });
 
